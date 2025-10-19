@@ -35,8 +35,14 @@ Route::middleware(['auth', 'can:access-admin-area'])
     // URL: /admin/dashboard -> Nama Rute: admin.dashboard
     Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
 
+    // Tambahkan ini di dalam grup admin
+    Route::get('/findings/create', [AdminController::class, 'createFinding'])->name('findings.create');
+
     // URL: /admin/findings -> Nama Rute: admin.findings
     Route::get('/findings', [AdminController::class, 'findings'])->name('findings');
+
+    // Di dalam grup admin
+    Route::post('/findings', [AdminController::class, 'storeFinding'])->name('findings.store');
 
     // URL: /admin/report -> Nama Rute: admin.report
     Route::get('/report', [AdminController::class, 'report'])->name('report');
