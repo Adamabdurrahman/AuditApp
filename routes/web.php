@@ -5,6 +5,8 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Admin\AdminController;
 use App\Models\User;
 use App\Http\Controllers\User\UserController;
+use App\Http\Controllers\NotificationController;
+use Illuminate\Support\Facades\Mail;
 
 Route::get('/', function () {
     return view('welcome');
@@ -57,6 +59,29 @@ Route::middleware(['auth', 'can:access-user-area'])
     
     // URL: /my-open-findings -> Nama Rute: user.my-open-findings
     Route::get('/my-open-findings', [UserController::class, 'myOpenFindings'])->name('my-open-findings');
+});
+
+Route::middleware('auth')->group(function () {
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead'])
+        ->name('notifications.read');
+    
+    Route::get('/notifications', [NotificationController::class, 'index'])
+        ->name('notifications.index');
+});
+
+Route::get('/notifications-count', function () {
+    $count = \App\Models\Notification::where('user_id', auth()->id())
+        ->where('is_read', false)
+        ->count();
+    return response()->json(['count' => $count]);
+})->middleware('auth');
+
+Route::get('/test-email', function () {
+    Mail::raw('Halo! Ini tes kedua kali email dari AuditApp via Brevo SMTP.', function ($message) {
+        $message->to('adamabdurrahman378@gmail.com')
+                ->subject('✅ Tes Email dari AuditApp');
+    });
+    return '✅ Email test berhasil dikirim!';
 });
 
 require __DIR__.'/auth.php';

@@ -69,4 +69,10 @@ class AuditForm extends Model
     {
         return $this->hasMany(Fileattachment::class, 'auditform_id');
     }
+
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class, 'auditform_id');
+    }
+
 }

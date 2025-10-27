@@ -12,8 +12,15 @@ use App\Models\Reminder;
 use App\Models\Status;
 use App\Models\Fileattachment;
 use App\Models\Subkategori;
+use App\Models\Notification;
+use App\Models\NotificationType;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\AuditNotificationMail;
+
+
 
 class AdminController extends Controller
 {
@@ -32,10 +39,21 @@ class AdminController extends Controller
     // Tampilkan form untuk membuat temuan audit baru
     public function createFinding()
     {
+        // Ambil kurs real-time
+        $exchangeRate = 15000; // fallback
+        try {
+            $response = Http::get('https://api.exchangerate-api.com/v4/latest/USD');
+            if ($response->successful()) {
+                $exchangeRate = $response->json('rates.IDR');
+            }
+        } catch (\Exception $e) {
+            // Tetap gunakan fallback jika API error
+        }
+
         $categories = Kategori::all();
         $priorities = Priority::all();
         $subcategories = Subkategori::all();
-        return view('admin.createAuditFindings', compact('categories', 'priorities', 'subcategories'));
+        return view('admin.createAuditFindings', compact('categories', 'priorities', 'subcategories', 'exchangeRate'));
     }
 
     public function storeFinding(Request $request)
@@ -97,8 +115,8 @@ class AdminController extends Controller
                 'client_pt' => 'required_if:category,Find Loss|string|max:255',
                 'client_name' => 'required_if:category,Find Loss|string|max:255',
                 'client_email' => 'required_if:category,Find Loss|email',
-                'reminder_name' => 'required_if:category,Non Compliance,Improvement|string|max:255',
-                'reminder_email' => 'required_if:category,Non Compliance,Improvement|email',
+                'reminder_name' => 'required_if:category,Non Compliance,Improvement|nullable|string|max:255',
+                'reminder_email' => 'required_if:category,Non Compliance,Improvement|nullable|email',
                 'internal_notes' => 'nullable|string',
                 'auditee_notes' => 'nullable|string',
                 'file_upload' => 'nullable|array',
@@ -155,17 +173,35 @@ class AdminController extends Controller
                 // 'attachment_path' => $attachmentPath
             ]);
 
+            // Notification::create([
+            //     'user_id' => $request->auditor,  // user yang menerima notifikasi
+            //     'auditform_id' => $auditForm->id,
+            //     'notificationstype_id' => 1, // 1 = Create
+            //     'title' => 'Temuan Audit Baru Dibuat',
+            //     'message' => "Pada tanggal '{$auditForm->tanggal_temuan}' Temuan '{$auditForm->judul_temuan}' telah dibuat dan ditugaskan kepada Anda.",
+            // ]);
+
             // Simpan Find Loss Details (jika ada)
-            if ($request->category === 'Find Loss' && $request->loss_description) {
-                foreach ($request->loss_description as $index => $item) {
-                    if (!empty($item) && isset($request->loss_value[$index])) {
+            if ($request->category === 'Find Loss' && is_array($request->loss_description)) {
+                foreach ($request->loss_description as $index => $description) {
+                    $value = $request->loss_value[$index] ?? null;
+
+                    // Simpan hanya jika deskripsi tidak kosong
+                    if (!empty(trim($description)) && is_numeric($value)) {
                         Findlossdetail::create([
-                            'item' => $item,
-                            'nilai' => $request->loss_value[$index],
+                            'item' => trim($description),
+                            'nilai' => (float) $value,
                             'audit_form_id' => $auditForm->id
                         ]);
                     }
                 }
+
+                Log::info('Find Loss Details to save:', [
+                    'descriptions' => $request->loss_description,
+                    'values' => $request->loss_value,
+                    'audit_form_id' => $auditForm->id
+                ]);
+
             }
 
             // Simpan lampiran (jika ada)
@@ -198,6 +234,38 @@ class AdminController extends Controller
                 'has_file' => $request->hasFile('file_upload'),
                 'files' => collect($request->file('file_upload'))->map(fn($f) => $f->getClientOriginalName())->toArray()
             ]);
+
+            // Ambil data auditor & auditee
+            $auditorUser = \App\Models\User::find($auditForm->auditor);
+            $auditeeEmail = $reminder->email;
+
+            // Buat notifikasi ke database (untuk web)
+            Notification::create([
+                'user_id' => $auditForm->auditor,
+                'auditform_id' => $auditForm->id,
+                'notificationstype_id' => 1, // Create
+                'title' => 'Temuan Audit Baru Dibuat',
+                'message' => "Pada tanggal '{$auditForm->tanggal_temuan}' Temuan '{$auditForm->judul_temuan}' telah dibuat dan ditugaskan kepada Anda.",
+            ]);
+
+            // Siapkan konten email
+            $subject = '[Audit System] Temuan Audit Baru Dibuat';
+            $title = 'Temuan Audit Baru Dibuat';
+            $message = "Temuan '{$auditForm->judul_temuan}' telah dibuat.\n\nTanggal Temuan: {$auditForm->tanggal_temuan}\nDue Date: {$auditForm->due_date}";
+
+            // Kirim email ke auditor
+            if ($auditorUser && $auditorUser->email) {
+                Mail::to($auditorUser->email)->send(
+                    new AuditNotificationMail($subject, $title, $message, $auditForm)
+                );
+            }
+
+            // Kirim email ke auditee (jika ada)
+            if (!empty($auditeeEmail)) {
+                Mail::to($auditeeEmail)->send(
+                    new AuditNotificationMail($subject, $title, $message, $auditForm)
+                );
+            }
 
             return redirect()->route('admin.findings')->with('success', 'Audit finding created successfully!');
         

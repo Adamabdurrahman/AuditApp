@@ -94,25 +94,20 @@
                         <!-- Bungkus semua dalam satu x-data -->
                         <div 
                             x-data="{
-                                selectedCategory: 'Find Loss',
+                                selectedCategory: 'Fin Loss',
                                 selectedPriority: 'High',
                                 subCategory: 'Recovery',
                                 items: [{ description: '', value: '' }],
                                 total: 0,
+                                exchangeRate: {{ $exchangeRate }},
+                                get totalUsd() {
+                                    return this.total > 0 
+                                        ? (this.total / this.exchangeRate).toFixed(2) 
+                                        : '0.00';
+                                },
                                 startDate: '', // ← Sekarang user yang isi
-                                get findingDate() {
-                                    // Tanggal temuan = hari ini (otomatis)
-                                    return new Date().toISOString().split('T')[0];
-                                },
-                                get dueDate() {
-                                    if (!this.startDate) return '';
-                                    const date = new Date(this.startDate);
-                                    let monthsToAdd = 1;
-                                    if (this.selectedPriority === 'High') monthsToAdd = 3;
-                                    else if (this.selectedPriority === 'Medium') monthsToAdd = 2;
-                                    date.setMonth(date.getMonth() + monthsToAdd);
-                                    return date.toISOString().split('T')[0];
-                                },
+                                findingDate: new Date().toISOString().split('T')[0], 
+                                dueDate: '',
                                 client: {
                                     pt: '',
                                     name: '',
@@ -167,9 +162,9 @@
                                     {{-- <input type="hidden" name="priority" :value="selectedPriority"> --}}
                                 </div>
 
-                                <!-- Sub Kategori: hanya untuk Find Loss -->
+                                <!-- Sub Kategori: hanya untuk Fin Loss -->
                                 <div 
-                                    x-show="selectedCategory === 'Find Loss'"
+                                    x-show="selectedCategory === 'Fin Loss'"
                                     x-transition
                                     class="md:col-span-2"
                                 >
@@ -192,14 +187,14 @@
                                 </div>
                             </div>
 
-                            <!-- Find Loss Details: hanya muncul jika Find Loss -->
+                            <!-- Fin Loss Details: hanya muncul jika Fin Loss -->
                             <div 
-                                x-show="selectedCategory === 'Find Loss'"
+                                x-show="selectedCategory === 'Fin Loss'"
                                 x-transition
                                 x-cloak
                             >
                                 <div class="space-y-4 pt-4 border-t dark:border-gray-700">
-                                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Find Loss Details</h3>
+                                    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Fin Loss Details</h3>
                                     
                                     <div class="space-y-4">
                                         <template x-for="(item, index) in items" :key="index">
@@ -255,8 +250,12 @@
                                     </button>
 
                                     <div class="flex justify-between items-center text-sm text-gray-800 dark:text-gray-100 pt-3 border-t dark:border-gray-700">
-                                        <span>Total Nilai Kerugian</span>
+                                        <span>Total Nilai Kerugian (IDR)</span>
                                         <span class="ml-4 font-bold">Rp <span x-text="total.toLocaleString('id-ID')">0</span></span>
+                                    </div>
+                                    <div class="flex justify-between items-center text-sm text-gray-800 dark:text-gray-100 pt-2">
+                                        <span>Total Nilai Kerugian (USD)</span>
+                                        <span class="ml-4 font-bold"> $ <span x-text="totalUsd">0.00</span></span>
                                     </div>
                                 </div>
                             </div>
@@ -296,16 +295,17 @@
                                         <input type="hidden" name="start_date" :value="startDate">
                                     </div>
 
-                                    <!-- Due Date (Otomatis dari Start Date + Priority) -->
+                                    <!-- Due Date (Manual) -->
                                     <div>
-                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                            Due Date
+                                        <label for="due_date_input" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                            End Date <span class="text-red-500">*</span>
                                         </label>
                                         <input 
-                                            type="text" 
-                                            :value="dueDate" 
-                                            readonly
-                                            class="mt-1 block w-full rounded-md bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 shadow-sm cursor-not-allowed"
+                                            type="date" 
+                                            id="due_date_input"
+                                            x-model="dueDate"
+                                            required
+                                            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                         >
                                         <input type="hidden" name="due_date" :value="dueDate">
                                     </div>
@@ -314,11 +314,11 @@
           
                             <!-- Pihak Ketiga / Reminder Section -->
                             <div class="pt-6 border-t dark:border-gray-700">
-                                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Pihak Ketiga / Reminder</h3>
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Pihak Auditee</h3>
 
-                                <!-- Client Section (hanya jika Find Loss) -->
+                                <!-- Client Section (hanya jika Fin Loss) -->
                                 <div 
-                                    x-show="selectedCategory === 'Find Loss'"
+                                    x-show="selectedCategory === 'Fin Loss'"
                                     x-transition
                                     class="space-y-4"
                                 >
@@ -332,7 +332,7 @@
                                                 id="client_pt" 
                                                 name="client_pt"
                                                 x-model="client.pt"
-                                                :required="selectedCategory === 'Find Loss'"
+                                                :required="selectedCategory === 'Fin Loss'"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                                 placeholder="Contoh: PT ABC Indonesia"
                                             >
@@ -347,7 +347,7 @@
                                                 id="client_name" 
                                                 name="client_name"
                                                 x-model="client.name"
-                                                :required="selectedCategory === 'Find Loss'"
+                                                :required="selectedCategory === 'Fin Loss'"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                                 placeholder="Contoh: Budi Santoso"
                                             >
@@ -362,7 +362,7 @@
                                                 id="client_email" 
                                                 name="client_email"
                                                 x-model="client.email"
-                                                :required="selectedCategory === 'Find Loss'"
+                                                :required="selectedCategory === 'Fin Loss'"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                                 placeholder="budi@abc.com"
                                             >
@@ -371,9 +371,9 @@
                                     </div>
                                 </div>
 
-                                <!-- Reminder Section (jika bukan Find Loss) -->
+                                <!-- Reminder Section (jika bukan Fin Loss) -->
                                 <div 
-                                    x-show="selectedCategory !== 'Find Loss'"
+                                    x-show="selectedCategory !== 'Fin Loss'"
                                     x-transition
                                     class="space-y-4"
                                 >
@@ -387,7 +387,7 @@
                                                 id="reminder_name" 
                                                 name="reminder_name"
                                                 x-model="reminder.name"
-                                                :required="selectedCategory !== 'Find Loss'"
+                                                :required="selectedCategory !== 'Fin Loss'"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                                 placeholder="Contoh: Andi Pratama"
                                             >
@@ -402,7 +402,7 @@
                                                 id="reminder_email" 
                                                 name="reminder_email"
                                                 x-model="reminder.email"
-                                                :required="selectedCategory !== 'Find Loss'"
+                                                :required="selectedCategory !== 'Fin Loss'"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                                 placeholder="andi@perusahaan.com"
                                             >
@@ -421,7 +421,7 @@
                                 <textarea id="internal_notes" name="internal_notes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500" placeholder="Add internal notes for the audit team..."></textarea>
                             </div>
                             <div>
-                                <label for="auditee_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Catatan Tambahan</label>
+                                <label for="auditee_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Active Respond</label>
                                 <textarea id="auditee_notes" name="auditee_notes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500" placeholder="Initial message or context for the auditee..."></textarea>
                             </div>
                         </div>

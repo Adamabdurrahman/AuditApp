@@ -52,13 +52,96 @@
             <!-- Settings Dropdown -->
             <div class="hidden sm:flex sm:items-center sm:ms-6">
 
+                
                 <!-- Tombol Ikon Notifikasi -->
-                <button class="inline-flex items-center p-2 me-3 rounded-md text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 hover:bg-green-100 dark:hover:bg-green-900 focus:outline-none focus:bg-green-100 dark:focus:bg-green-900 focus:text-green-500 dark:focus:text-green-400 transition duration-150 ease-in-out">
-                    {{-- Ini adalah kode SVG untuk ikon lonceng --}}
-                    <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                    </svg>
-                </button>
+                <div class="relative me-3" x-data="{ openNotif: false }">
+                    <!-- Tombol Lonceng -->
+                    <button @click="openNotif = !openNotif" class="relative inline-flex items-center p-2 rounded-md 
+                        text-gray-400 dark:text-gray-500 hover:text-green-500 dark:hover:text-green-400 
+                        hover:bg-green-100 dark:hover:bg-green-900 focus:outline-none transition duration-150 ease-in-out">
+                        <!-- Icon Lonceng -->
+                        <svg class="h-6 w-6" stroke="currentColor" fill="none" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+
+                        <!-- Badge jumlah notifikasi belum dibaca -->
+                        @if(isset($unreadCount) && $unreadCount > 0)
+                            <span class="absolute top-0 right-0 inline-flex items-center justify-center 
+                                        px-1.5 py-0.5 text-xs font-bold leading-none text-white 
+                                        bg-red-600 rounded-full transform translate-x-1/2 -translate-y-1/2">
+                                {{ $unreadCount }}
+                            </span>
+                        @endif
+                    </button>
+
+                    <!-- Dropdown Notifikasi -->
+                    <div 
+                        x-show="openNotif" 
+                        x-transition:enter="transition ease-out duration-200"
+                        x-transition:enter-start="opacity-0 transform scale-95"
+                        x-transition:enter-end="opacity-100 transform scale-100"
+                        x-transition:leave="transition ease-in duration-100"
+                        x-transition:leave-start="opacity-100 transform scale-100"
+                        x-transition:leave-end="opacity-0 transform scale-95"
+                        @click.away="openNotif = false" 
+                        class="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 shadow-lg rounded-lg border 
+                            border-gray-200 dark:border-gray-700 z-50 overflow-hidden"
+                    >
+                        <!-- Header -->
+                        <div class="p-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900">
+                            <span class="font-semibold text-gray-700 dark:text-gray-200">Notifikasi</span>
+                            @if(isset($unreadCount) && $unreadCount > 0)
+                                <span class="text-xs text-gray-400">({{ $unreadCount }} belum dibaca)</span>
+                            @endif
+                        </div>
+
+                        <!-- Daftar Notifikasi -->
+                        <ul class="max-h-64 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+                            @forelse($navbarNotifications as $notif)
+                                @php
+                                    $color = match($notif->notificationstype_id) {
+                                        1 => 'text-blue-600',    // Create
+                                        2 => 'text-yellow-500',  // Reminder
+                                        3 => 'text-red-600',     // Overdue
+                                        default => 'text-gray-600'
+                                    };
+                                @endphp
+
+                                <li 
+                                    class="p-3 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition duration-150 ease-in-out"
+                                    data-id="{{ $notif->id }}"
+                                    onclick="markNotificationAsRead({{ $notif->id }})"
+                                >
+
+                                    <p class="text-sm font-semibold {{ $color }}">
+                                        {{ $notif->title }}
+                                        @if(!$notif->is_read)
+                                            <span class="ml-1 inline-block w-2 h-2 bg-red-500 rounded-full"></span>
+                                        @endif
+                                    </p>
+                                    <p class="text-xs text-gray-600 dark:text-gray-400 leading-snug mt-1">
+                                        {{ $notif->message }}
+                                    </p>
+                                    <p class="text-[10px] text-gray-400 mt-1">{{ $notif->created_at->diffForHumans() }}</p>
+                                </li>
+                            @empty
+                                <li class="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+                                    Tidak ada notifikasi
+                                </li>
+                            @endforelse
+                        </ul>
+
+                        <!-- Footer -->
+                        <div class="bg-gray-50 dark:bg-gray-900 text-center p-2 text-sm">
+                            <a href="{{ route('notifications.index') }}" class="text-green-600 dark:text-green-400 font-semibold hover:underline">
+                                Lihat Semua
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+
                 
                 <x-dropdown align="right" width="48">
                     <x-slot name="trigger">
@@ -137,4 +220,55 @@
             </div>
         </div>
     </div>
+
+    {{-- script untuk nontifikasi --}}
+    <script>
+        function markNotificationAsRead(id) {
+            fetch(`/notifications/${id}/read`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                    'Accept': 'application/json',
+                },
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Hapus badge merah kecil di item notifikasi
+                    document.querySelector(`[data-id="${id}"] span.bg-red-500`)?.remove();
+
+                    // Kurangi counter badge di ikon lonceng
+                    const badge = document.querySelector('span.bg-red-600');
+                    if (badge) {
+                        let count = parseInt(badge.textContent);
+                        if (count > 1) badge.textContent = count - 1;
+                        else badge.remove();
+                    }
+                }
+            })
+            .catch(err => console.error('Error:', err));
+        }
+
+        setInterval(() => {
+        fetch('/notifications-count')
+            .then(res => res.json())
+            .then(data => {
+                const badge = document.querySelector('span.bg-red-600');
+                if (data.count > 0) {
+                    if (badge) badge.textContent = data.count;
+                    else {
+                        // buat badge baru
+                        const bell = document.querySelector('button svg');
+                        const span = document.createElement('span');
+                        span.className = 'absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full transform translate-x-1/2 -translate-y-1/2';
+                        span.textContent = data.count;
+                        bell.parentElement.appendChild(span);
+                    }
+                } else {
+                    badge?.remove();
+                }
+            });
+    }, 15000); // update setiap 15 detik
+    </script>
+
 </nav>
