@@ -269,24 +269,6 @@
                 }
             });
     }, 15000); // update setiap 15 detik
-
-        window.addEventListener('notification-read', function (event) {
-            const newCount = event.detail.unreadCount;
-            const badge = document.querySelector('span.bg-red-600');
-
-            if (badge) {
-                if (newCount > 0) badge.textContent = newCount;
-                else badge.remove();
-            } else if (newCount > 0) {
-                // kalau badge belum ada tapi ada unread baru, buat lagi
-                const bell = document.querySelector('button svg');
-                const span = document.createElement('span');
-                span.className =
-                    'absolute top-0 right-0 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full transform translate-x-1/2 -translate-y-1/2';
-                span.textContent = newCount;
-                bell.parentElement.appendChild(span);
-            }
-        });
     </script>
 
 </nav>

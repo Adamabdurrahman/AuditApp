@@ -17,24 +17,17 @@ class NotificationController extends Controller
         return view('notifications.index', compact('notifications'));
     }
 
-     // ✅ Tandai notifikasi sebagai dibaca via AJAX
+    // Tandai satu notifikasi sebagai dibaca
     public function markAsRead($id)
     {
         $notification = Notification::where('id', $id)
             ->where('user_id', auth()->id())
             ->first();
 
-        if ($notification && !$notification->is_read) {
+        if ($notification) {
             $notification->update(['is_read' => true]);
         }
 
-        $unreadCount = Notification::where('user_id', auth()->id())
-            ->where('is_read', false)
-            ->count();
-
-        return response()->json([
-            'success' => true,
-            'unreadCount' => $unreadCount
-        ]);
+        return response()->json(['success' => true]);
     }
 }

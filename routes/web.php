@@ -46,31 +46,6 @@ Route::middleware(['auth', 'can:access-admin-area'])
     // Di dalam grup admin
     Route::post('/findings', [AdminController::class, 'storeFinding'])->name('findings.store');
 
-    Route::delete('/findings/{id}', [AdminController::class, 'deleteFinding'])->name('findings.delete');
-
-    Route::post('/findings/{id}/autosave', [AdminController::class, 'autoSaveFinding'])->name('findings.autosave');
-
-    Route::post('/findlossdetail/{auditFormId}', [AdminController::class, 'addFindLossDetail'])
-    ->name('findlossdetail.add');
-
-    Route::delete('/findlossdetail/{id}', [AdminController::class, 'deleteFindLossDetail'])
-    ->name('findlossdetail.delete');
-
-    Route::post('/findings/{id}/extend', [AdminController::class, 'extendDueDate'])
-    ->name('findings.extend');
-
-    Route::post('/findings/{id}/attachments', [AdminController::class, 'uploadAttachment'])
-    ->name('findings.uploadAttachment');
-
-    Route::delete('/attachments/{id}', [AdminController::class, 'deleteAttachment'])
-    ->name('findings.deleteAttachment');
-
-
-    // Di dalam grup admin
-    Route::get('/findings/{id}/assessment', [AdminController::class, 'showAssessment'])
-        ->name('findings.assessment');
-        
-
     // URL: /admin/report -> Nama Rute: admin.report
     Route::get('/report', [AdminController::class, 'report'])->name('report');
 
@@ -100,9 +75,6 @@ Route::get('/notifications-count', function () {
         ->count();
     return response()->json(['count' => $count]);
 })->middleware('auth');
-
-Route::post('/notifications/{id}/read', [App\Http\Controllers\NotificationController::class, 'markAsRead'])
-    ->name('notifications.markAsRead');
 
 Route::get('/test-email', function () {
     Mail::raw('Halo! Ini tes kedua kali email dari AuditApp via Brevo SMTP.', function ($message) {

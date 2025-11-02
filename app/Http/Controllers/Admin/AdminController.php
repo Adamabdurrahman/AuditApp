@@ -2,25 +2,24 @@
 
 namespace App\Http\Controllers\Admin;
 use Exception;
-use App\Models\Status;
+use Illuminate\Support\Facades\Log;
+use App\Http\Controllers\Controller;
+use App\Models\AuditForm;
+use App\Models\Findlossdetail;
 use App\Models\Kategori;
 use App\Models\Priority;
 use App\Models\Reminder;
-use App\Models\AuditForm;
+use App\Models\Status;
+use App\Models\Fileattachment;
 use App\Models\Subkategori;
 use App\Models\Notification;
-use Illuminate\Http\Request;
-use App\Models\Fileattachment;
-use App\Models\Findlossdetail;
-use Illuminate\Support\Carbon;
 use App\Models\NotificationType;
-use App\Mail\AuditNotificationMail;
-use Illuminate\Support\Facades\Log;
-use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\ValidationException;
+use App\Mail\AuditNotificationMail;
+
 
 
 class AdminController extends Controller
@@ -32,157 +31,10 @@ class AdminController extends Controller
     }
 
     // Fungsi untuk menampilkan halaman Findings
-    public function findings(Request $request)
+    public function findings()
     {
-        $exchangeRate = 15000;
-        try {
-            $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
-            if ($response->successful()) {
-                $exchangeRate = $response->json('rates.IDR');
-            }
-        } catch (\Exception $e) {
-            // ignore fallback
-        }
-
-        // Ambil semua opsi filter
-        $statuses = \App\Models\Status::all();
-        $priorities = \App\Models\Priority::all();
-        $categories = \App\Models\Kategori::all();
-
-        // Query dasar
-        $query = \App\Models\AuditForm::with([
-            'kategori',
-            'priority',
-            'status',
-            'findlossdetails'
-        ])->orderBy('id', 'asc');
-
-        // 🔹 Filter Status
-        if ($request->filled('status')) {
-            $query->whereHas('status', function ($q) use ($request) {
-                $q->where('status', $request->status);
-            });
-        }
-
-        // 🔹 Filter Priority
-        if ($request->filled('priority')) {
-            $query->whereHas('priority', function ($q) use ($request) {
-                $q->where('name', $request->priority);
-            });
-        }
-
-        // 🔹 Filter Kategori
-        if ($request->filled('kategori')) {
-            $query->whereHas('kategori', function ($q) use ($request) {
-                $q->where('name', $request->kategori);
-            });
-        }
-
-        // 🔹 Filter Due Date
-        // 🔹 Filter Due Date Range
-        if ($request->filled('due_start') && $request->filled('due_end')) {
-            // Jika dua-duanya diisi: ambil antara dua tanggal itu
-            $query->whereBetween('due_date', [$request->due_start, $request->due_end]);
-        } elseif ($request->filled('due_start')) {
-            // Jika hanya tanggal awal
-            $query->whereDate('due_date', '>=', $request->due_start);
-        } elseif ($request->filled('due_end')) {
-            // Jika hanya tanggal akhir
-            $query->whereDate('due_date', '<=', $request->due_end);
-        }
-
-
-         // 🔍 search judul_temuan
-        if ($request->filled('search'))
-            $query->where('judul_temuan', 'LIKE', '%' . $request->search . '%');
-
-        $findings = $query->paginate(15)->withQueryString();
-
-        return view('admin.findings', compact('findings', 'exchangeRate', 'statuses', 'priorities', 'categories'));
+        return view('admin.findings');
     }
-
-
-
-    public function deleteFinding($id)
-    {
-        $finding = AuditForm::findOrFail($id);
-        $finding->delete();
-
-        return redirect()->route('admin.findings')->with('success', 'Finding deleted successfully.');
-    }
-
-    // In AdminController.php
-
-    public function showAssessment($id)
-    {
-        // Hentikan eksekusi dan tampilkan ID yang diterima
-        // dd('Controller berhasil diakses dengan ID: ' . $id);
-
-        $finding = AuditForm::with([
-            'kategori',
-            'priority',
-            'status',
-            'reminder',
-            'findlossdetails',
-            'fileattachments'
-        ])->findOrFail($id);
-
-        $categories = Kategori::all();
-        $subcategories = Subkategori::all();
-        $priorities = Priority::all();
-
-        // 🔹 Tambahkan ini
-        $exchangeRate = 15000; // fallback
-        try {
-            $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
-            if ($response->successful()) {
-                $exchangeRate = $response->json('rates.IDR');
-            }
-        } catch (\Exception $e) {
-            // fallback tetap
-        }
-
-        return view('admin.assessment', compact('finding', 'categories', 'subcategories', 'priorities', 'exchangeRate'));
-    }
-
-    public function autoSaveFinding(Request $request, $id)
-    {
-        $field = $request->input('field');
-        $value = $request->input('value');
-
-        $finding = AuditForm::with('reminder')->findOrFail($id);
-
-        // 🧠 Daftar field yang boleh diubah
-        $allowedFields = [
-            'judul_temuan', 'temuan_audit', 'kategori_id',
-            'subkategori_id', 'priority_id', 'rekomendasi_author',
-            'catatan_tambahan', 'pic', 'start_date',
-            'reminder_pt', 'reminder_nama', 'reminder_email'
-        ];
-
-        if (!in_array($field, $allowedFields)) {
-            return response()->json(['error' => 'Invalid field'], 400);
-        }
-
-        // 🔹 Jika field milik reminder
-        if (in_array($field, ['reminder_pt', 'reminder_nama', 'reminder_email'])) {
-            $reminder = $finding->reminder;
-            if ($reminder) {
-                $column = str_replace('reminder_', '', $field);
-                $reminder->$column = $value;
-                $reminder->save();
-            } else {
-                return response()->json(['error' => 'Reminder not found'], 404);
-            }
-        } else {
-            // 🔹 Field milik AuditForm
-            $finding->$field = $value;
-            $finding->save();
-        }
-
-        return response()->json(['success' => true]);
-    }
-
 
     // Tampilkan form untuk membuat temuan audit baru
     public function createFinding()
@@ -204,168 +56,6 @@ class AdminController extends Controller
         return view('admin.createAuditFindings', compact('categories', 'priorities', 'subcategories', 'exchangeRate'));
     }
 
-
-    public function addFindLossDetail(Request $request, $auditFormId)
-    {
-        try {
-
-            $exchangeRate = 15000;
-            try {
-                $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
-                if ($response->successful()) {
-                    $exchangeRate = $response->json('rates.IDR');
-                }
-            } catch (\Exception $e) {
-                // fallback
-            }
-            
-            $detail = Findlossdetail::create([
-                'item' => $request->item,
-                'nilai' => $request->nilai,
-                'audit_form_id' => $auditFormId,
-            ]);
-
-            $exchangeRate = 16253.62;
-
-            $responseData = [
-                'success' => true,
-                'detail' => [
-                    'id' => $detail->id,
-                    'item' => $detail->item,
-                    'nilai' => number_format($detail->nilai, 0, ',', '.'),
-                    'usd' => number_format($detail->nilai / $exchangeRate, 2)
-                ]
-            ];
-
-        Log::info('✅ Response data before return', $responseData);
-
-        return response()->json($responseData, 200, [], JSON_UNESCAPED_UNICODE);
-
-    } catch (\Throwable $e) {
-        Log::error('❌ Error addFindLossDetail', ['msg' => $e->getMessage()]);
-        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
-    }
-
-    }
-
-
-    public function deleteFindLossDetail($id)
-    {
-        try {
-            $detail = \App\Models\Findlossdetail::findOrFail($id);
-            $detail->delete();
-
-            return response()->json(['success' => true]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function uploadAttachment(Request $request, $id)
-    {
-        $request->validate(['file' => 'required|file|mimes:jpg,jpeg,png,pdf|max:5120']); // <= 5 MB per file
-
-        try {
-            // Hitung total ukuran file yang sudah ada
-            $currentTotalSize = Fileattachment::where('auditform_id', $id)->sum('file_size');
-            $newFileSize = $request->file('file')->getSize();
-
-            if (($currentTotalSize + $newFileSize) > (5 * 1024 * 1024)) {
-                return response()->json([
-                    'success' => false,
-                    'error' => 'Total ukuran file untuk form ini melebihi 5 MB.'
-                ], 400);
-            }
-
-            $file = $request->file('file');
-            $path = $file->store('audit-attachments', 'public');
-
-            $attachment = Fileattachment::create([
-                'auditform_id' => $id,
-                'file_path' => $path,
-                'file_name' => $file->getClientOriginalName(),
-                'file_type' => $file->getMimeType(),
-                'file_size' => $file->getSize(),
-            ]);
-
-            return response()->json(['success' => true, 'attachment' => $attachment]);
-        } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'error' => $e->getMessage()]);
-        }
-    }
-
-
-    public function deleteAttachment($id)
-    {
-        try {
-            $file = Fileattachment::findOrFail($id);
-            Storage::disk('public')->delete($file->file_path);
-            $file->delete();
-            return response()->json(['success' => true]);
-        } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'error' => $e->getMessage()]);
-        }
-    }
-
-    public function extendDueDate(Request $request, $id)
-    {
-        $request->validate([
-            'due_date' => 'required|date|after_or_equal:today',
-        ]);
-
-        $form = AuditForm::with(['status', 'auditorUser', 'reminder'])->findOrFail($id);
-        $oldDueDate = $form->due_date;
-        $newDueDate = $request->due_date;
-
-        // Jangan izinkan lebih kecil dari due_date lama
-        if (Carbon::parse($newDueDate)->lt(Carbon::parse($oldDueDate))) {
-            return response()->json(['success' => false, 'error' => 'Tanggal baru tidak boleh sebelum due date lama.'], 400);
-        }
-
-        // Update due date
-        $form->due_date = $newDueDate;
-
-        // Jika status sekarang Overdue → ubah jadi Open
-        $openStatus = Status::where('status', 'Open')->first();
-        if ($form->status->status === 'Overdue' && $openStatus) {
-            $form->status_id = $openStatus->id;
-        }
-
-        $form->save();
-
-        // Buat notifikasi
-        Notification::create([
-            'user_id' => $form->auditor,
-            'auditform_id' => $form->id,
-            'notificationstype_id' => 4, // tambahkan "Extend" di tabel notificationstype
-            'title' => 'Due Date Diperpanjang',
-            'message' => "Temuan '{$form->judul_temuan}' diperpanjang sampai {$newDueDate}.",
-        ]);
-
-        // Kirim email ke auditor & auditee
-        $subject = '[Audit System] Due Date Diperpanjang';
-        $title = 'Due Date Audit Diperpanjang';
-        $message = "Temuan '{$form->judul_temuan}' telah diperpanjang sampai {$newDueDate}.";
-
-        if ($form->auditorUser && $form->auditorUser->email) {
-            Mail::to($form->auditorUser->email)->send(
-                new AuditNotificationMail($subject, $title, $message, $form)
-            );
-        }
-
-        if ($form->reminder && $form->reminder->email) {
-            Mail::to($form->reminder->email)->send(
-                new AuditNotificationMail($subject, $title, $message, $form)
-            );
-        }
-
-        return response()->json(['success' => true]);
-    }
-
-
     public function storeFinding(Request $request)
     {
         Log::info('Starting storeFinding...', ['input' => $request->all()]);
@@ -383,9 +73,9 @@ class AdminController extends Controller
                 'finding_date' => 'required|date',
                 'start_date' => 'required|date',
                 'due_date' => 'required|date',
-                'client_pt' => 'required_if:category,Fin Loss|nullable|string|max:255',
-                'client_name' => 'required_if:category,Fin Loss|nullable|string|max:255',
-                'client_email' => 'required_if:category,Fin Loss|nullable|email',
+                'client_pt' => 'required_if:category,Find Loss|nullable|string|max:255',
+                'client_name' => 'required_if:category,Find Loss|nullable|string|max:255',
+                'client_email' => 'required_if:category,Find Loss|nullable|email',
                 'reminder_name' => 'required_if:category,Non Compliance,Improvement|nullable|string|max:255',
                 'reminder_email' => 'required_if:category,Non Compliance,Improvement|nullable|email',
                 'internal_notes' => 'nullable|string',
@@ -422,9 +112,9 @@ class AdminController extends Controller
                 'finding_date' => 'required|date',
                 'start_date' => 'required|date',
                 'due_date' => 'required|date',
-                'client_pt' => 'required_if:category,Fin Loss|string|max:255',
-                'client_name' => 'required_if:category,Fin Loss|string|max:255',
-                'client_email' => 'required_if:category,Fin Loss|email',
+                'client_pt' => 'required_if:category,Find Loss|string|max:255',
+                'client_name' => 'required_if:category,Find Loss|string|max:255',
+                'client_email' => 'required_if:category,Find Loss|email',
                 'reminder_name' => 'required_if:category,Non Compliance,Improvement|nullable|string|max:255',
                 'reminder_email' => 'required_if:category,Non Compliance,Improvement|nullable|email',
                 'internal_notes' => 'nullable|string',
@@ -437,7 +127,7 @@ class AdminController extends Controller
 
             $kategori = Kategori::where('name', $request->category)->first();
             $priority = Priority::where('name', $request->priority)->first();
-            $subkategori = $request->category === 'Fin Loss' 
+            $subkategori = $request->category === 'Find Loss' 
                 ? Subkategori::where('name', $request->sub_category)->first()
                 : null;
 
@@ -447,7 +137,7 @@ class AdminController extends Controller
             }
             // Simpan reminder/client
             $reminderId = null;
-            if ($request->category === 'Fin Loss') {
+            if ($request->category === 'Find Loss') {
                 $reminder = Reminder::create([
                     'pt' => $request->client_pt,
                     'nama' => $request->client_name,
@@ -456,7 +146,7 @@ class AdminController extends Controller
                 $reminderId = $reminder->id;
             } else {
                 $reminder = Reminder::create([
-                    'pt' => null, // NULL untuk non-Fin Loss
+                    'pt' => null, // NULL untuk non-Find Loss
                     'nama' => $request->reminder_name,
                     'email' => $request->reminder_email
                 ]);
@@ -483,8 +173,16 @@ class AdminController extends Controller
                 // 'attachment_path' => $attachmentPath
             ]);
 
-            // Simpan Fin Loss Details (jika ada)
-            if ($request->category === 'Fin Loss' && is_array($request->loss_description)) {
+            // Notification::create([
+            //     'user_id' => $request->auditor,  // user yang menerima notifikasi
+            //     'auditform_id' => $auditForm->id,
+            //     'notificationstype_id' => 1, // 1 = Create
+            //     'title' => 'Temuan Audit Baru Dibuat',
+            //     'message' => "Pada tanggal '{$auditForm->tanggal_temuan}' Temuan '{$auditForm->judul_temuan}' telah dibuat dan ditugaskan kepada Anda.",
+            // ]);
+
+            // Simpan Find Loss Details (jika ada)
+            if ($request->category === 'Find Loss' && is_array($request->loss_description)) {
                 foreach ($request->loss_description as $index => $description) {
                     $value = $request->loss_value[$index] ?? null;
 
@@ -498,7 +196,7 @@ class AdminController extends Controller
                     }
                 }
 
-                Log::info('Fin Loss Details to save:', [
+                Log::info('Find Loss Details to save:', [
                     'descriptions' => $request->loss_description,
                     'values' => $request->loss_value,
                     'audit_form_id' => $auditForm->id

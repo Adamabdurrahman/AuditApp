@@ -16,17 +16,17 @@
                 @forelse($notifications as $notif)
                     @php
                         $color = match($notif->notificationstype_id) {
-                            1 => 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-                            2 => 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
-                            3 => 'border-red-500 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+                            1 => 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300', // Create
+                            2 => 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300', // Reminder
+                            3 => 'border-red-500 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300', // Overdue
                             default => 'border-gray-300 bg-gray-50 dark:bg-gray-900/30 text-gray-300'
                         };
                     @endphp
 
-                    <div class="notif-item mb-4 p-4 rounded-lg border-l-4 {{ $color }} hover:shadow-md transition duration-150 ease-in-out cursor-pointer"
-                         data-id="{{ $notif->id }}">
+                    <div class="mb-4 p-4 rounded-lg border-l-4 {{ $color }} hover:shadow-md transition duration-150 ease-in-out">
                         <div class="flex justify-between items-center">
                             <div class="flex items-start gap-2">
+                                {{-- Ikon tipe notifikasi --}}
                                 @if($notif->notificationstype_id == 1)
                                     <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -44,14 +44,16 @@
                                     </svg>
                                 @endif
 
+                                {{-- Isi notifikasi --}}
                                 <div>
                                     <p class="font-semibold">{{ $notif->title }}</p>
                                     <p class="text-sm opacity-90">{{ $notif->message }}</p>
                                 </div>
                             </div>
 
+                            {{-- Penanda belum dibaca --}}
                             @if(!$notif->is_read)
-                                <span class="badge-new ml-2 inline-flex items-center justify-center w-2 h-2 bg-red-500 rounded-full"></span>
+                                <span class="ml-2 inline-flex items-center justify-center w-2 h-2 bg-red-500 rounded-full"></span>
                             @endif
                         </div>
 
@@ -70,41 +72,9 @@
                 @endforelse
 
                 <div class="mt-6">
-                    {{ $notifications->links('vendor.pagination.compact') }}
+                    {{ $notifications->links() }}
                 </div>
             </div>
         </div>
     </div>
-
-    <script>
-    document.querySelectorAll('.notif-item').forEach(item => {
-        item.addEventListener('click', function() {
-            const notifId = this.dataset.id;
-
-            fetch(`/notifications/${notifId}/read`, {
-                method: 'POST',
-                headers: {
-                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
-                    'Accept': 'application/json',
-                },
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    // 🔘 Hilangkan titik merah di notifikasi yang diklik
-                    this.querySelector('.badge-new')?.remove();
-
-                    // 🔔 Kirim event global agar navbar ikut update tanpa reload
-                    window.dispatchEvent(
-                        new CustomEvent('notification-read', {
-                            detail: { unreadCount: data.unreadCount }
-                        })
-                    );
-                }
-            });
-        });
-    });
-
-    
-    </script>
 </x-app-layout>
