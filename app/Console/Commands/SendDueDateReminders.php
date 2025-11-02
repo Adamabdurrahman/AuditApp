@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use Illuminate\Console\Command;
 use App\Models\AuditForm;
 use App\Models\Notification;
+use App\Models\Status;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\AuditNotificationMail;
@@ -24,10 +25,21 @@ class SendDueDateReminders extends Command
             ->whereHas('status', fn($q) => $q->where('status', 'Open'))
             ->get();
 
+        $openStatus = Status::where('status', 'Open')->first();
+
+        $overdueStatus = Status::where('status', 'Overdue')->first();    
+
         foreach ($forms as $form) {
             $due = Carbon::parse($form->due_date);
             $daysLeft = $today->diffInDays($due, false);
 
+            if ($daysLeft >= 0 && $form->status->status === 'Overdue') {
+                if ($openStatus) {
+                    $form->status_id = $openStatus->id;
+                    $form->save();
+                    $this->line("   🔄 Status form ID {$form->id} dikembalikan ke Open (extend aktif)");
+                }
+            }
             /**
              * ==============
              * 1️⃣ Kirim Reminder (H-7)
@@ -43,6 +55,14 @@ class SendDueDateReminders extends Command
              * ==============
              */
             if ($due->isPast() && $form->status->status === 'Open') {
+
+                // 🔹 Update status ke Overdue
+                if ($overdueStatus) {
+                    $form->status_id = $overdueStatus->id;
+                    $form->save();
+                    $this->line("   ⚙️ Status form ID {$form->id} diubah menjadi Overdue");
+                }
+
                 $this->handleNotificationAndEmail($form, 3, 'Overdue');
             }
         }
