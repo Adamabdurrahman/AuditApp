@@ -19,17 +19,24 @@
                 </p>
             </div>
 
-            <!-- Tombol Aksi di Kanan (hanya Submit for Review) -->
+            <!-- Tombol Aksi di Kanan -->
             <div class="flex gap-3">
-                <button type="button" 
-                        class="px-4 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-900 transition">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9-9.5L12 5m0 14l-9-9.5L12 5" />
+                <a href="{{ strtolower($finding->status->status ?? '') === 'closed' ? '#' : route('admin.findings.confirm', $finding->id) }}"
+                class="px-4 py-2 rounded-lg font-medium inline-flex items-center transition
+                        {{ strtolower($finding->status->status ?? '') === 'closed'
+                            ? 'bg-gray-400 text-gray-200 cursor-not-allowed opacity-60'
+                            : 'bg-black text-white hover:bg-gray-900' }}"
+                @if(strtolower($finding->status->status ?? '') === 'closed')
+                    aria-disabled="true"
+                    onclick="return false;"
+                @endif>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 19l9-9.5L12 5m0 14l-9-9.5L12 5" />
                     </svg>
-                    Submit for Review
-                </button>
+                    {{ strtolower($finding->status->status ?? '') === 'closed' ? 'Form Closed' : 'Submit for Review' }}
+                </a>
             </div>
-
         </div>
 
     </x-slot>
@@ -37,66 +44,147 @@
     <div class="py-8 bg-white dark:bg-gray-900">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-8">
 
-            <!-- Informasi Ringkas (seperti gambar) -->
-            <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700 mb-6">
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    
-                    <!-- Audit Type -->
-                    <div class="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <div>
-                            <p class="text-xs text-gray-500 dark:text-gray-400">Audit Type</p>
-                            <p class="font-medium text-gray-900 dark:text-gray-100">{{ $finding->kategori->name ?? '—' }}</p>
-                        </div>
-                    </div>
+            {{-- =========================================================
+                PANEL INFORMASI KHUSUS: Fin Loss → Recovery
+            ========================================================= --}}
+            @if(
+                isset($finding->kategori->name) &&
+                strtolower($finding->kategori->name) === 'fin loss' &&
+                isset($finding->subkategori->name) &&
+                strtolower($finding->subkategori->name) === 'recovery'
+            )
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
 
-                    <!-- Lead Auditor -->
-                    <div class="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 017 7h0a7 7 0 01-7-7z" />
-                        </svg>
-                        <div>
-                            <p class="text-xs text-gray-500 dark:text-gray-400">Lead Auditor</p>
-                            @php
-                                $auditor = \App\Models\User::find($finding->auditor);
-                            @endphp
-                            <p class="font-medium text-gray-900 dark:text-gray-100">{{ $auditor?->name ?? '—' }}</p>
-                        </div>
-                    </div>
-
-                    <!-- Due Date -->
-                    <div class="flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <div>
-                            <p class="text-xs text-gray-500 dark:text-gray-400">Due Date</p>
-                            <p class="font-medium text-gray-900 dark:text-gray-100">
-                                {{ $finding->due_date ? \Carbon\Carbon::parse($finding->due_date)->format('Y-m-d') : '—' }}
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Progress -->
-                    <div class="flex items-center gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9M9 9M19 9v6a2 2 0 01-2 2h-2a2 2 0 01-2-2v-6a2 2 0 012-2h2a2 2 0 012 2z" />
-                        </svg>
-                        <div>
-                            <p class="text-xs text-gray-500 dark:text-gray-400">Progress</p>
-                            <div class="flex items-center gap-2">
-                                <div class="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-2">
-                                    <div class="bg-blue-600 h-2 rounded-full" style="width: 33%;"></div>
-                                </div>
-                                <span class="text-sm font-medium">33%</span>
+                        <!-- Total Kerugian -->
+                        <div class="flex items-center gap-3 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8c-1.657 0-3 1.343-3 3h6c0-1.657-1.343-3-3-3zm0 0V4m0 8v8m8-8a8 8 0 11-16 0 8 8 0 0116 0z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Total Kerugian</p>
+                                <p class="font-semibold text-red-600 dark:text-red-400">
+                                    Rp {{ number_format($totalKerugian ?? 0, 0, ',', '.') }}
+                                </p>
                             </div>
                         </div>
-                    </div>
 
+                        <!-- Total Recovery -->
+                        <div class="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m-3 5a9 9 0 110-18 9 9 0 010 18z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Total Recovery</p>
+                                <p class="font-semibold text-green-600 dark:text-green-400">
+                                    Rp {{ number_format($totalRecovery ?? 0, 0, ',', '.') }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Sisa Output -->
+                        <div class="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m-3 5a9 9 0 110-18 9 9 0 010 18z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Sisa Output</p>
+                                <p class="font-semibold text-blue-600 dark:text-blue-400">
+                                    Rp {{ number_format($sisaOutputNow ?? 0, 0, ',', '.') }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Sisa Input -->
+                        <div class="flex items-center gap-3 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 8v4l3 3m-3 5a9 9 0 110-18 9 9 0 010 18z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Sisa Input</p>
+                                <p class="font-semibold text-yellow-600 dark:text-yellow-400">
+                                    Rp {{ number_format($sisaInputNow ?? 0, 0, ',', '.') }}
+                                </p>
+                            </div>
+                        </div>
+
+                    </div>
                 </div>
-            </div>
+            @else
+                {{-- =========================================================
+                    PANEL DEFAULT (Non-Fin Loss / Recovery)
+                ========================================================= --}}
+                <!-- Informasi Ringkas -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700 mb-6">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+
+                        <!-- Audit Type -->
+                        <div class="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Audit Type</p>
+                                <p class="font-medium text-gray-900 dark:text-gray-100">
+                                    {{ $finding->kategori->name ?? '—' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Lead Auditor -->
+                        <div class="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 017 7h0a7 7 0 01-7-7z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Lead Auditor</p>
+                                <p class="font-medium text-gray-900 dark:text-gray-100">
+                                    {{ $finding->auditorUser->name ?? '—' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Due Date -->
+                        <div class="flex items-center gap-3 p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                            </svg>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Due Date</p>
+                                <p class="font-medium text-gray-900 dark:text-gray-100">
+                                    {{ $finding->due_date ? \Carbon\Carbon::parse($finding->due_date)->format('d M Y') : '—' }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Progress -->
+                        <div class="flex items-center gap-3 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9M9 9M19 9v6a2 2 0 01-2 2h-2a2 2 0 01-2-2v-6a2 2 0 012-2h2a2 2 0 012 2z" />
+                            </svg>
+                            <div class="w-full">
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Progress</p>
+                                <div class="flex items-center gap-2">
+                                    <div class="w-full bg-gray-300 dark:bg-gray-700 rounded-full h-2">
+                                        <div class="bg-blue-600 h-2 rounded-full" style="width: {{ $progressPercent }}%;"></div>
+                                    </div>
+                                    <span class="text-sm font-medium">{{ $progressPercent }}%</span>
+                                </div>
+                            </div>
+                        </div>
+
+
+                    </div>
+                </div>
+            @endif
 
             <!-- Tab Section -->
             <div class="py-8 bg-white dark:bg-gray-900">
@@ -105,16 +193,16 @@
                     <!-- Tab Navigation -->
                     <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
                         <nav class="flex space-x-8 overflow-x-auto pb-2">
-                            <button type="button" data-tab="info" class="tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                            <button type="button" data-tab="info" class="main-tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                                 Information Detail
                             </button>
-                            <button type="button" data-tab="loss" class="tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                            <button type="button" data-tab="loss" class="main-tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                                 Fin Loss Detail
                             </button>
-                            <button type="button" data-tab="timeline" class="tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                            <button type="button" data-tab="timeline" class="main-tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                                 Timeline & Auditee 
                             </button>
-                            <button type="button" data-tab="attachment" class="tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                            <button type="button" data-tab="attachment" class="main-tab-button pb-2 px-1 font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                                 Attachment
                             </button>
                         </nav>
@@ -569,20 +657,22 @@
             @push('scripts')
             <script>
             document.addEventListener('DOMContentLoaded', function () {
-                const tabButtons = document.querySelectorAll('[data-tab]');
-                const tabPanes = document.querySelectorAll('.tab-pane');
+                // const tabButtons = document.querySelectorAll('[data-tab]');
+                const mainTabButtons = document.querySelectorAll('.main-tab-button');
+                // const tabPanes = document.querySelectorAll('.tab-pane');
+                const mainTabPanes = document.querySelectorAll('.tab-pane');
                 const editableInputs = document.querySelectorAll('.editable-input');
                 const findingId = {{ $finding->id }};
                 const csrfToken = '{{ csrf_token() }}';
 
                 // Fungsi aktivasi tab
-                function activateTab(tabName) {
-                    tabButtons.forEach(btn => {
+                function activateMainTab(tabName) {
+                    mainTabButtons.forEach(btn => {
                         btn.classList.remove('text-blue-600', 'dark:text-blue-400', 'border-blue-500');
                         btn.classList.add('text-gray-500', 'dark:text-gray-400');
                     });
-                    tabPanes.forEach(pane => pane.classList.add('hidden'));
-                    const btn = document.querySelector(`[data-tab="${tabName}"]`);
+                    mainTabPanes.forEach(pane => pane.classList.add('hidden'));
+                    const btn = document.querySelector(`.main-tab-button[data-tab="${tabName}"]`);
                     const pane = document.getElementById(`${tabName}-tab`);
                     if (btn) {
                         btn.classList.remove('text-gray-500', 'dark:text-gray-400');
@@ -593,12 +683,10 @@
                     }
                 }
 
-                activateTab('info');
+                activateMainTab('info');
 
-                tabButtons.forEach(button => {
-                    button.addEventListener('click', () => {
-                        activateTab(button.getAttribute('data-tab'));
-                    });
+                mainTabButtons.forEach(btn => {
+                    btn.addEventListener('click', () => activateMainTab(btn.dataset.tab));
                 });
 
                 // Auto-save logic
@@ -877,173 +965,589 @@
             @endpush
 
 
-
             <!-- Bagian Audit Items & Detail -->
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-                <!-- Kolom Kiri: Audit Items List -->
-                <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">Audit Items (4)</h3>
-                        <button class="px-3 py-1 bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-                            + Add Item
+                <!-- =========================
+                    🟣 KOLOM KIRI - AUDIT ITEMS
+                ========================== -->
+                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                    <!-- Header: Audit Items + Add Button -->
+                    <div class="flex justify-between items-center mb-5">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">Audit Items (<span id="item-count">{{ $finding->assessments->count() }}</span>)</h3>
+                        </div>
+                        <button id="openAddModal"
+                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg shadow transition flex items-center gap-1">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Add Item
                         </button>
                     </div>
 
-                    <div class="space-y-3">
-                        <!-- Item 1 -->
-                        <div class="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg cursor-pointer border border-green-200 dark:border-green-900/30">
-                            <div class="flex items-start gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 6a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                <div>
-                                    <h4 class="font-medium text-gray-900 dark:text-gray-100">Revenue Recognition Controls</h4>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                                        Review and test controls over revenue recognition processes including contract review, pricing appro...
-                                    </p>
-                                    <div class="mt-2 flex gap-2">
-                                        <span class="px-2 py-0.5 text-xs bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 rounded-full">High Risk</span>
-                                        <span class="px-2 py-0.5 text-xs bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300 rounded-full">Effective</span>
+                    <!-- Daftar Items -->
+                    <div id="assessmentList" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 pb-2">
+                        @forelse($finding->assessments as $a)
+                            <div class="group p-4 bg-white dark:bg-gray-700/50 rounded-xl border-2 border-purple-200 dark:border-purple-800/50 hover:border-purple-300 dark:hover:border-purple-700 transition-all cursor-pointer">
+                                <div class="flex justify-between gap-3">
+                                    <div class="flex-1 min-w-0">
+                                        <h4 class="font-semibold text-gray-900 dark:text-gray-100 truncate">{{ $a->title }}</h4>
+                                        <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{{ $a->description }}</p>
                                     </div>
+                                    <button class="delete-assessment flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                        data-id="{{ $a->id }}" title="Hapus item">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
-                        </div>
+                        @empty
+                            <div class="text-center py-6">
+                                <p class="text-gray-500 dark:text-gray-400 italic">Belum ada item audit.</p>
+                            </div>
+                        @endforelse
+                    </div>
 
-                        <!-- Item 2 -->
-                        <div class="p-4 bg-white dark:bg-gray-800 rounded-lg cursor-pointer border border-yellow-200 dark:border-yellow-900/30">
-                            <div class="flex items-start gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
+                    <!-- Modal Add Assessment -->
+                    <div id="addModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">Add Assessment Item</h3>
+                                <button id="cancelAdd" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="space-y-4">
                                 <div>
-                                    <h4 class="font-medium text-gray-900 dark:text-gray-100">Accounts Payable Authorization</h4>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                                        Test three-way matching controls and authorization limits for accounts payable transactions....
-                                    </p>
-                                    <div class="mt-2 flex gap-2">
-                                        <span class="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 rounded-full">Medium Risk</span>
-                                    </div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
+                                    <input id="assessmentTitle" type="text"
+                                        class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                                    <textarea id="assessmentDescription" rows="3"
+                                        class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"></textarea>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Item 3 -->
-                        <div class="p-4 bg-white dark:bg-gray-800 rounded-lg cursor-pointer border border-red-200 dark:border-red-900/30">
-                            <div class="flex items-start gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 6a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                <div>
-                                    <h4 class="font-medium text-gray-900 dark:text-gray-100">Cash Management Controls</h4>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                                        Review bank reconciliation processes, cash handling procedures, and segregation of duties....
-                                    </p>
-                                    <div class="mt-2 flex gap-2">
-                                        <span class="px-2 py-0.5 text-xs bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 rounded-full">High Risk</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Item 4 -->
-                        <div class="p-4 bg-white dark:bg-gray-800 rounded-lg cursor-pointer border border-yellow-200 dark:border-yellow-900/30">
-                            <div class="flex items-start gap-2">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 6a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                <div>
-                                    <h4 class="font-medium text-gray-900 dark:text-gray-100">Inventory Valuation Controls</h4>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
-                                        Test inventory counting procedures, valuation methods, and obsolescence assessments....
-                                    </p>
-                                    <div class="mt-2 flex gap-2">
-                                        <span class="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-800 dark:bg-yellow-900/50 dark:text-yellow-300 rounded-full">Medium Risk</span>
-                                    </div>
-                                </div>
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button id="cancelAdd"
+                                    class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+                                    Cancel
+                                </button>
+                                <button id="saveAdd"
+                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition">
+                                    Add Item
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Kolom Kanan: Detail Item -->
-                <div class="lg:col-span-3 bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700">
-                    <!-- Header Item -->
-                    <div class="flex justify-between items-start mb-4">
+
+                <div id="detailPanel"
+                    class="lg:col-span-3 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 rounded-xl shadow-sm border border-gray-300 dark:border-gray-700 p-6 transition">
+
+                    <div class="flex justify-between items-start mb-6">
                         <div>
-                            <h3 class="text-xl font-bold text-gray-800 dark:text-gray-200">Revenue Recognition Controls</h3>
-                            <p class="text-gray-600 dark:text-gray-400">ITM-001</p>
-                        </div>
-                        <div class="flex gap-2">
-                            <span class="px-3 py-1 text-sm bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 rounded-full font-medium">High Risk</span>
-                            <span class="px-3 py-1 text-sm bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200 rounded-full font-medium">Completed</span>
+                            <h3 id="detailTitle" class="text-xl font-bold text-gray-800 dark:text-gray-200">Select an Item</h3>
+                            <p id="detailCode" class="text-gray-600 dark:text-gray-400">—</p>
                         </div>
                     </div>
 
+                    @php
+                        $isFinLossRecovery = $finding->kategori->name === 'Fin Loss' 
+                            && optional($finding->subkategori)->name === 'Recovery';
+                    @endphp
+
                     <!-- Tabs -->
-                    <div class="border-b border-gray-200 dark:border-gray-700 mb-6">
-                        <nav class="flex space-x-8">
-                            <button class="pb-2 px-1 border-b-2 border-blue-500 text-blue-600 dark:text-blue-400 font-medium">Assessment</button>
-                            <button class="pb-2 px-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">Findings</button>
-                            <button class="pb-2 px-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">Evidence</button>
-                            <button class="pb-2 px-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">Details</button>
+                    <div class="border-b border-gray-300 dark:border-gray-600 mb-6">
+                        <nav class="flex space-x-6">
+                            <button class="sub-tab-btn pb-2 px-1 border-b-2 border-blue-500 text-blue-600 dark:text-blue-400 font-medium"
+                                data-tab="assessment">Assessment</button>
+                            @if($isFinLossRecovery)
+                                <button
+                                    class="sub-tab-btn pb-2 px-1 text-black dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
+                                    data-tab="recovery">Recovery</button>
+                            @endif
                         </nav>
                     </div>
 
-                    <!-- Form Assessment -->
-                    <div class="space-y-6">
+                    <!-- Content: Assessment -->
+                    <div id="tab-assessment" class="space-y-6">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Control Description</label>
-                            <div class="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                <p class="text-gray-800 dark:text-gray-200">
-                                    Review and test controls over revenue recognition processes including contract review, pricing approval, and revenue cut-off procedures.
-                                </p>
-                            </div>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Assessment Title</label>
+                            <input id="detailTitleInput" type="text"
+                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Control Description</label>
+                            <textarea id="detailDescriptionInput" rows="3"
+                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"></textarea>
                         </div>
 
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Assessment Result</label>
-                                <select class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
-                                    <option>Effective</option>
-                                    <option>Ineffective</option>
-                                    <option>Partially Effective</option>
-                                </select>
+                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Assessment Result</label>
+                                <input id="detailTypeInput" type="text"
+                                    placeholder="E.g. Ineffective, 100%, etc."
+                                    class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                             </div>
+
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Test Date</label>
-                                <input type="date" value="2025-10-30" 
-                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
+                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Test Date</label>
+                                <input id="detailTestDate" type="date"
+                                    class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                             </div>
                         </div>
 
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Testing Procedures Performed</label>
-                            <textarea rows="4" placeholder="Describe the testing procedures performed to assess this control..."
-                                    class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 resize-none"></textarea>
-                        </div>
-
-                        <!-- Tombol Aksi -->
-                        <div class="flex gap-3 pt-4">
-                            <button type="button" 
-                                    class="px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-4 4m0 0l-4-4m4 4V3" />
-                                </svg>
-                                Save Progress
-                            </button>
-                            <button type="button" 
-                                    class="px-4 py-2 bg-black text-white rounded-lg font-medium hover:bg-gray-900 transition">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 6a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                </svg>
-                                Complete Assessment
-                            </button>
+                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Testing Procedures Performed</label>
+                            <textarea id="detailTestingPerformed" rows="4"
+                                placeholder="Describe the testing procedures performed..."
+                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"></textarea>
                         </div>
                     </div>
-                </div>
 
+                    <!-- Content: Recovery -->
+                    @if($isFinLossRecovery)
+                        <div id="tab-recovery" class="hidden space-y-6">
+                            <!-- Form Tambah Recovery -->
+                            <div class="flex flex-col sm:flex-row sm:items-end gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-200 dark:border-gray-600">
+                                <div class="flex-1">
+                                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Recovery Name</label>
+                                    <input id="recoveryName" type="text"
+                                        class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100">
+                                </div>
+                                <div class="w-full sm:w-48">
+                                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Nilai (Rp)</label>
+                                    <input id="recoveryValue" type="number" min="0" step="any"
+                                        class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100">
+                                </div>
+                                <button id="addRecoveryBtn"
+                                    class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition flex items-center justify-center">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    Add Budget
+                                </button>
+                            </div>
+
+                            <!-- Tabel Recovery -->
+                            <div class="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600">
+                                <table class="min-w-full text-sm">
+                                    <thead class="bg-gray-100 dark:bg-gray-700/80 text-gray-700 dark:text-gray-200">
+                                        <tr>
+                                            <th class="px-4 py-3 text-left border-b">Recovery Name</th>
+                                            <th class="px-4 py-3 text-right border-b">Nilai (Rp)</th>
+                                            <th class="px-4 py-3 text-right border-b">Nilai (USD)</th>
+                                            <th class="px-4 py-3 text-center border-b">Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recoveryTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
+                                        @php
+                                            $firstAssessment = $finding->assessments->first();
+                                            $initialRecoveries = $firstAssessment ? $firstAssessment->recoveries : collect();
+                                            $exchangeRate = 15000.00; // dari knowledge base Anda
+                                        @endphp
+
+                                        @if($initialRecoveries->count() > 0)
+                                            @foreach($initialRecoveries as $rec)
+                                                @php
+                                                    $nilaiRp = number_format($rec->nilai, 0, ',', '.');
+                                                    $nilaiUsd = number_format($rec->nilai / $exchangeRate, 2);
+                                                @endphp
+                                                <tr>
+                                                    <td class="px-4 py-3 text-gray-900 dark:text-gray-100">{{ $rec->item }}</td>
+                                                    <td class="px-4 py-3 text-right font-medium text-red-600 dark:text-red-400">Rp {{ $nilaiRp }}</td>
+                                                    <td class="px-4 py-3 text-right font-medium text-blue-600 dark:text-blue-400">USD {{ $nilaiUsd }}</td>
+                                                    <td class="px-4 py-3 text-center">
+                                                        <button class="delete-recovery text-red-500 hover:text-red-700 dark:hover:text-red-400" data-id="{{ $rec->id }}">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7h-3V5a2 2 0 00-2-2H10a2 2 0 00-2 2v2H5a1 1 0 000 2h1v11a2 2 0 002 2h10a2 2 0 002-2V9h1a1 1 0 100-2zM9 5h6v2H9V5z" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                            <script>
+                                                document.getElementById('totalRp').textContent = 'Rp {{ number_format($initialRecoveries->sum('nilai'), 0, ',', '.') }}';
+                                                document.getElementById('totalUsd').textContent = 'USD {{ number_format($initialRecoveries->sum('nilai') / $exchangeRate, 2) }}';
+                                            </script>
+                                        @else
+                                            <tr>
+                                                <td colspan="4" class="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                                                    Pilih Assessment untuk melihat Recovery
+                                                </td>
+                                            </tr>
+                                        @endif
+                                    </tbody>
+                                    <tfoot class="bg-gray-100 dark:bg-gray-700/80 font-bold">
+                                        <tr>
+                                            <td class="px-4 py-3 text-left border-t">Total:</td>
+                                            <td id="totalRp" class="px-4 py-3 text-right text-red-600 dark:text-red-400 border-t">Rp 0</td>
+                                            <td id="totalUsd" class="px-4 py-3 text-right text-blue-600 dark:text-blue-400 border-t">USD 0.00</td>
+                                            <td class="border-t"></td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+                    @endif
+                </div>
             </div>
+
+            <!-- =========================
+                    ⚙️ SCRIPT
+                ========================== -->
+            <script>
+            const subTabButtons = document.querySelectorAll('.sub-tab-btn');
+
+            subTabButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    subTabButtons.forEach(b =>
+                        b.classList.remove('border-b-2', 'border-blue-500', 'text-blue-600', 'dark:text-blue-400')
+                    );
+                    btn.classList.add('border-b-2', 'border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+                    document.querySelectorAll('#detailPanel [id^="tab-"]').forEach(c => c.classList.add('hidden'));
+                    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+                });
+            });
+
+            const openAddModal = document.getElementById('openAddModal');
+            const addModal = document.getElementById('addModal');
+            const cancelAdd = document.getElementById('cancelAdd');
+            const saveAdd = document.getElementById('saveAdd');
+            const list = document.getElementById('assessmentList');
+            const count = document.getElementById('item-count');
+            const detailPanel = document.getElementById('detailPanel');
+
+            const titleInput = document.getElementById('detailTitleInput');
+            const descInput = document.getElementById('detailDescriptionInput');
+            const typeInput = document.getElementById('detailTypeInput');
+            const testDate = document.getElementById('detailTestDate');
+            const testPerformed = document.getElementById('detailTestingPerformed');
+
+            let currentAssessmentId = null;
+
+            // ===================== MODAL =====================
+            openAddModal.addEventListener('click', () => addModal.classList.remove('hidden'));
+            cancelAdd.addEventListener('click', () => addModal.classList.add('hidden'));
+
+            // ===================== LOAD DETAIL =====================
+            async function loadAssessmentDetail(id) {
+                const res = await fetch(`/admin/assessments/${id}`);
+                const data = await res.json().catch(() => null);
+                if (!data || !data.success) return;
+
+                const a = data.assessment;
+                currentAssessmentId = a.id;
+                window.currentAssessmentId = a.id; 
+
+                titleInput.value = a.title ?? '';
+                descInput.value = a.description ?? '';
+
+                // Normalisasi nilai dropdown (case-insensitive)
+                typeInput.value = a.type ?? '';
+
+                testDate.value = a.test_date ?? '';
+                testPerformed.value = a.testing_performed ?? '';
+
+                detailPanel.classList.remove('opacity-50', 'pointer-events-none');
+
+                if (typeof loadRecoveries === 'function') {
+                    loadRecoveries(currentAssessmentId);
+                }
+            }
+
+            // ===================== AUTO SAVE =====================
+            async function autoSave(field, value) {
+                if (!currentAssessmentId) return;
+                try {
+                    await fetch(`/admin/assessments/${currentAssessmentId}`, {
+                        method: 'PATCH',
+                        headers: {
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ field, value }),
+                    });
+                } catch (e) {
+                    console.error('Autosave failed:', e);
+                }
+            }
+
+            // Event listener untuk auto-save
+            titleInput.addEventListener('input', e => autoSave('title', e.target.value));
+            descInput.addEventListener('input', e => autoSave('description', e.target.value));
+            typeInput.addEventListener('input', e => {
+                const val = e.target.value.trim();
+                const formatted = val.charAt(0).toUpperCase() + val.slice(1);
+                autoSave('type', formatted);
+            });
+            testDate.addEventListener('change', e => autoSave('test_date', e.target.value));
+            testPerformed.addEventListener('input', e => autoSave('testing_performed', e.target.value));
+
+            // ===================== CLICK ITEM =====================
+            function attachAssessmentClickEvents() {
+                document.querySelectorAll('#assessmentList > div').forEach(box => {
+                    box.addEventListener('click', () => {
+                        document.querySelectorAll('#assessmentList > div').forEach(b => b.classList.remove('ring', 'ring-purple-500'));
+                        box.classList.add('ring', 'ring-purple-500');
+                        const id = box.querySelector('button.delete-assessment').dataset.id;
+                        loadAssessmentDetail(id);
+                    });
+                });
+            }
+            attachAssessmentClickEvents();
+
+            // ===================== DELETE ASSESSMENT =====================
+            document.addEventListener('click', async (e) => {
+                if (!e.target.closest('.delete-assessment')) return;
+                const btn = e.target.closest('.delete-assessment');
+                const id = btn.dataset.id;
+
+                if (!confirm('Yakin ingin menghapus assessment ini beserta semua Recovery terkait?')) return;
+
+                try {
+                    const res = await fetch(`/admin/assessments/${id}`, {
+                        method: 'DELETE',
+                        headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                    });
+
+                    const data = await res.json().catch(() => null);
+                    if (!data?.success) {
+                        alert('Gagal menghapus assessment.');
+                        return;
+                    }
+
+                    // Hapus elemen dari tampilan
+                    btn.closest('.group').remove();
+
+                    // Reset detail panel
+                    document.getElementById('detailPanel').classList.add('opacity-50', 'pointer-events-none');
+                    document.getElementById('recoveryTableBody').innerHTML =
+                        `<tr><td colspan="4" class="text-center py-3 text-gray-500">
+                            Pilih Assessment untuk melihat Recovery
+                        </td></tr>`;
+
+                    // Reset total recovery
+                    document.getElementById('totalRp').textContent = 'Rp 0';
+                    document.getElementById('totalUsd').textContent = 'USD 0.00';
+                } catch (err) {
+                    console.error('Delete failed:', err);
+                }
+            });
+
+
+            // ===================== AUTO SELECT PERTAMA =====================
+            window.addEventListener('DOMContentLoaded', () => {
+                const firstBox = document.querySelector('#assessmentList > div');
+                if (firstBox) {
+                    firstBox.classList.add('ring', 'ring-purple-500');
+                    const id = firstBox.querySelector('button.delete-assessment').dataset.id;
+                    loadAssessmentDetail(id);
+                }
+            });
+
+            // ===================== ADD ITEM =====================
+            saveAdd.addEventListener('click', async () => {
+                const title = document.getElementById('assessmentTitle').value.trim();
+                const description = document.getElementById('assessmentDescription').value.trim();
+                if (!title) return alert('Title required');
+
+                const res = await fetch(`/admin/assessments/{{ $finding->id }}`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ title, description })
+                });
+
+                const data = await res.json().catch(() => null);
+                if (!data || !data.success) return alert('Failed to add item.');
+
+                const div = document.createElement('div');
+                div.className = 'p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600 flex justify-between items-start cursor-pointer';
+                div.innerHTML = `
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-gray-100">${data.assessment.title}</h4>
+                        <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">${data.assessment.description ?? ''}</p>
+                    </div>
+                    <button class="delete-assessment text-red-500 hover:text-red-700" data-id="${data.assessment.id}">🗑️</button>
+                `;
+                div.classList.add('transition', 'transform', 'duration-200', 'scale-95');
+                list.prepend(div);
+                count.textContent = parseInt(count.textContent) + 1;
+
+                document.getElementById('assessmentTitle').value = '';
+                document.getElementById('assessmentDescription').value = '';
+                addModal.classList.add('hidden');
+
+                attachAssessmentClickEvents();
+                div.click();
+            });
+
+            // ===================== TAB SWITCH =====================
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            tabButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const tab = btn.dataset.tab;
+                    tabButtons.forEach(b => b.classList.remove('border-b-2', 'border-blue-500', 'text-blue-600', 'dark:text-blue-400'));
+                    btn.classList.add('border-b-2', 'border-blue-500', 'text-blue-600', 'dark:text-blue-400');
+                    document.querySelectorAll('#detailPanel [id^="tab-"]').forEach(c => c.classList.add('hidden'));
+                    document.getElementById(`tab-${tab}`).classList.remove('hidden');
+                });
+            });
+            </script>
+
+
+            {{-- khusus untuk recovery --}}
+            <script>
+            /* =======================================================
+            SCRIPT RECOVERY - FIXED VERSION (langsung bisa jalan)
+            ======================================================= */
+            const recoveryName = document.getElementById('recoveryName');
+            const recoveryValue = document.getElementById('recoveryValue');
+            const addRecoveryBtn = document.getElementById('addRecoveryBtn');
+            const recoveryTableBody = document.getElementById('recoveryTableBody');
+            const totalRp = document.getElementById('totalRp');
+            const totalUsd = document.getElementById('totalUsd');
+
+            let totalRpValue = 0;
+            let totalUsdValue = 0;
+
+            function formatRp(value) {
+                return 'Rp ' + Number(value).toLocaleString('id-ID');
+            }
+
+            function formatUsd(value) {
+                return 'USD ' + Number(value).toFixed(2);
+            }
+
+            /* ===================== LOAD RECOVERY ===================== */
+            async function loadRecoveries(assessmentId) {
+                if (!assessmentId) {
+                    recoveryTableBody.innerHTML = `
+                        <tr><td colspan="4" class="text-center py-3 text-gray-500">
+                            Pilih Assessment untuk melihat Recovery
+                        </td></tr>`;
+                    totalRp.textContent = 'Rp 0';
+                    totalUsd.textContent = 'USD 0.00';
+                    return;
+                }
+
+                console.log('📦 Memuat Recovery untuk Assessment ID:', assessmentId);
+
+                const res = await fetch(`/admin/recovery/${assessmentId}`);
+                const data = await res.json().catch(() => null);
+
+                if (!data?.success) {
+                    console.warn('❌ Gagal memuat recovery');
+                    return;
+                }
+
+                recoveryTableBody.innerHTML = ''; 
+                totalRpValue = 0;
+                totalUsdValue = 0;
+
+                if (data.recoveries.length === 0) {
+                    recoveryTableBody.innerHTML = `
+                        <tr><td colspan="4" class="text-center py-3 text-gray-500">
+                            Belum ada data recovery
+                        </td></tr>`;
+                    totalRp.textContent = 'Rp 0';
+                    totalUsd.textContent = 'USD 0.00';
+                    return;
+                }
+
+                // ✅ Loop isi tabel
+                data.recoveries.forEach(r => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="border px-4 py-2">${r.item}</td>
+                        <td class="border px-4 py-2 text-right">Rp ${r.nilai}</td>
+                        <td class="border px-4 py-2 text-right">USD ${r.usd}</td>
+                        <td class="border px-4 py-2 text-center">
+                            <button class="delete-recovery text-red-500 hover:text-red-700" data-id="${r.id}">🗑️</button>
+                        </td>
+                    `;
+                    recoveryTableBody.appendChild(row);
+
+                    totalRpValue += parseFloat(r.nilai.replace(/\./g, '').replace(',', '.'));
+                    totalUsdValue += parseFloat(r.usd);
+                });
+
+                totalRp.textContent = formatRp(totalRpValue);
+                totalUsd.textContent = formatUsd(totalUsdValue);
+            }
+
+      
+            /* ===================== ADD RECOVERY ===================== */
+            if (addRecoveryBtn) {
+                addRecoveryBtn.addEventListener('click', async () => {
+                    const item = recoveryName.value.trim();
+                    const nilai = parseFloat(recoveryValue.value);
+                    if (!item || isNaN(nilai)) return alert('Isi Recovery Name dan Nilai dengan benar.');
+                    
+                    // ✅ Gunakan variabel dari scope luar (closure)
+                    if (!currentAssessmentId) return alert('Pilih assessment terlebih dahulu.');
+
+                    const res = await fetch(`/admin/recovery/${currentAssessmentId}`, {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ item, nilai }),
+                    });
+
+                    const data = await res.json().catch(() => null);
+                    if (!data?.success) return alert('Gagal menambah recovery.');
+
+                    recoveryName.value = '';
+                    recoveryValue.value = '';
+
+                    // reload tabel setelah tambah
+                    await loadRecoveries(currentAssessmentId); // ✅ Gunakan langsung
+                });
+            }
+
+            /* ===================== DELETE RECOVERY ===================== */
+            recoveryTableBody?.addEventListener('click', async (e) => {
+                if (!e.target.classList.contains('delete-recovery')) return;
+
+                const id = e.target.dataset.id;
+                if (!confirm('Hapus item ini?')) return;
+
+                const res = await fetch(`/admin/recovery/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                });
+
+                const data = await res.json().catch(() => null);
+                if (!data?.success) return alert('Gagal menghapus recovery.');
+
+                // reload tabel
+                await loadRecoveries(currentAssessmentId);
+            });
+
+            /* ✅ Registrasikan fungsi agar bisa dipanggil dari script utama */
+            window.loadRecoveries = loadRecoveries;
+            </script>
+
 
         </div>
     </div>

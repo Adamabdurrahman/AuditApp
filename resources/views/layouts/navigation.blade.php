@@ -17,37 +17,47 @@
                     </x-nav-link>
                 </div> --}}
 
-                @can('access-user-area')
-                    <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                        {{-- Ini adalah dasbor USER --}}
-                        <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
-                            {{ __('Dashboard') }}
-                        </x-nav-link>
+                <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
+                    @can('access-user-area')
+                        
+                            {{-- Ini adalah dasbor USER --}}
+                            <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">
+                                {{ __('Dashboard') }}
+                            </x-nav-link>
 
-                        <x-nav-link :href="route('user.my-open-findings')" :active="request()->routeIs('user.my-open-findings')">
-                            {{ __('My Open Findings') }}
-                        </x-nav-link>
-                    </div>
-                @endcan
+                            <x-nav-link :href="route('user.my-open-findings')" :active="request()->routeIs('user.my-open-findings')">
+                                {{ __('My Open Findings') }}
+                            </x-nav-link>
+                    
+                    @endcan
 
-                @can('access-admin-area')
-                    <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
-                        <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
-                            {{ __('Admin Dashboard') }}
-                        </x-nav-link>
-                        <x-nav-link :href="route('admin.findings')" :active="request()->routeIs('admin.findings')">
-                            {{ __('Findings') }}
-                        </x-nav-link>
-                        <x-nav-link :href="route('admin.report')" :active="request()->routeIs('admin.report')">
-                            {{ __('Report') }}
-                        </x-nav-link>
+                    @can('access-admin-area')
+                        
+                            <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
+                                {{ __('Admin Dashboard') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.findings')" :active="request()->routeIs('admin.findings')">
+                                {{ __('Findings') }}
+                            </x-nav-link>
+                            {{-- <x-nav-link :href="route('admin.report')" :active="request()->routeIs('admin.report')">
+                                {{ __('Report') }}
+                            </x-nav-link> --}}
+                        
+                    @endcan
+
+                    {{-- Ganti 'manage-users' dengan nama Gate Anda --}}
+                    @can('access-superadmin-area')
                         <x-nav-link :href="route('admin.users')" :active="request()->routeIs('admin.users')">
                             {{ __('Manage User') }}
                         </x-nav-link>
-                    </div>
-                @endcan
-            
+                    @endcan
+
+                    <x-nav-link :href="route('notifications.index')" :active="request()->routeIs('notifications.index')">
+                        {{ __('Notifications') }}
+                    </x-nav-link>
+                </div>
             </div>
+
 
             <!-- Settings Dropdown -->
             <div class="hidden sm:flex sm:items-center sm:ms-6">
@@ -104,6 +114,7 @@
                                         1 => 'text-blue-600',    // Create
                                         2 => 'text-yellow-500',  // Reminder
                                         3 => 'text-red-600',     // Overdue
+                                        5 => 'text-green-600',
                                         default => 'text-gray-600'
                                     };
                                 @endphp

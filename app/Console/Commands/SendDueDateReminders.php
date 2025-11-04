@@ -30,6 +30,12 @@ class SendDueDateReminders extends Command
         $overdueStatus = Status::where('status', 'Overdue')->first();    
 
         foreach ($forms as $form) {
+
+            if ($form->status && strtolower($form->status->status) === 'closed') {
+                $this->line("⏹️ Form ID {$form->id} sudah Closed, dilewati.");
+                continue;
+            }
+            
             $due = Carbon::parse($form->due_date);
             $daysLeft = $today->diffInDays($due, false);
 
@@ -76,6 +82,11 @@ class SendDueDateReminders extends Command
     protected function handleNotificationAndEmail($form, $type, $mode)
     {
         $today = Carbon::today();
+
+        if ($form->status && strtolower($form->status->status) === 'closed') {
+            $this->line("⛔ Skip {$mode}: Form ID {$form->id} sudah Closed.");
+            return;
+        }
 
         // Cegah duplikasi notifikasi di hari yang sama
         $alreadySent = Notification::where('auditform_id', $form->id)

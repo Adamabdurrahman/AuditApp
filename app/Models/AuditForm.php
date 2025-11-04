@@ -75,4 +75,29 @@ class AuditForm extends Model
         return $this->hasMany(Notification::class, 'auditform_id');
     }
 
+    public function assessments()
+    {
+        return $this->hasMany(Assessment::class, 'audit_form_id');
+    }
+
+    protected static function booted()
+    {
+        static::deleting(function ($auditForm) {
+            // Hapus detail kerugian
+            $auditForm->findlossdetails()->delete();
+
+            // Hapus file attachment
+            $auditForm->fileattachments()->delete();
+
+            // Hapus assessment beserta recovery
+            $auditForm->assessments->each(function ($assessment) {
+                $assessment->recoveries()->delete();
+                $assessment->delete();
+            });
+
+            // Hapus notifikasi terkait
+            $auditForm->notifications()->delete();
+        });
+    }
+
 }

@@ -22,7 +22,6 @@ Route::get('/dashboard', function () {
     return view('dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
-
 Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -68,15 +67,60 @@ Route::middleware(['auth', 'can:access-admin-area'])
 
     // Di dalam grup admin
     Route::get('/findings/{id}/assessment', [AdminController::class, 'showAssessment'])
-        ->name('findings.assessment');
+    ->name('findings.assessment');
         
+    // untuk assesments
+    Route::post('/assessments/{auditFormId}', [AdminController::class, 'addAssessment'])
+    ->name('assessments.add');
+
+    Route::get('/assessments/{id}', [AdminController::class, 'getAssessment'])
+    ->name('assessments.get');
+
+    Route::patch('/assessments/{id}', [AdminController::class, 'updateAssessment'])
+    ->name('assessments.update');
+
+    // Recovery
+    Route::post('/recovery/{assessmentId}', [AdminController::class, 'addRecovery'])->name('recovery.add');
+    Route::delete('/recovery/{id}', [AdminController::class, 'deleteRecovery'])->name('recovery.delete');
+    Route::get('/recovery/{assessmentId}', [AdminController::class, 'getRecovery'])->name('recovery.get');
+
+    Route::delete('/assessments/{id}', [AdminController::class, 'deleteAssessment'])
+    ->name('assessments.delete');
+
+    // halaman konfirmasi setelah submit for review
+    Route::get('/findings/{id}/confirm', [AdminController::class, 'confirmFinding'])
+    ->name('findings.confirm');
+
+    // Menutup audit form
+    Route::post('/findings/{id}/close', [AdminController::class, 'closeFinding'])
+        ->name('findings.close');
+    
+    Route::get('/users', [AdminController::class, 'manageUsers'])
+        ->name('users')
+        ->middleware('can:access-superadmin-area'); // <-- Gunakan nama Gate baru Anda
+
+    Route::post('/users/{user}/update-role', [AdminController::class, 'updateUserRole'])
+        ->name('users.updateRole')
+        ->middleware('can:access-superadmin-area');
 
     // URL: /admin/report -> Nama Rute: admin.report
-    Route::get('/report', [AdminController::class, 'report'])->name('report');
+    // Route::get('/report', [AdminController::class, 'report'])->name('report');
 
-    // URL: /admin/users -> Nama Rute: admin.users
-    Route::get('/users', [AdminController::class, 'manageUsers'])->name('users');
 });
+
+Route::middleware(['auth'])
+    ->prefix('admin')
+    ->group(function () {
+        Route::get('/dashboard/data/finloss', [App\Http\Controllers\Admin\AdminController::class, 'getFinLossDonut'])
+            ->name('dashboard.finloss');
+        
+        Route::get('/dashboard/data/improvement', [App\Http\Controllers\Admin\AdminController::class, 'getImprovementChart'])
+            ->name('dashboard.improvement');
+
+        Route::get('/dashboard/data/noncompliance', [App\Http\Controllers\Admin\AdminController::class, 'getNonComplianceChart'])
+            ->name('dashboard.noncompliance');
+    });
+
 
 Route::middleware(['auth', 'can:access-user-area'])
     ->name('user.') // Memberi awalan nama rute user.
@@ -93,6 +137,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/notifications', [NotificationController::class, 'index'])
         ->name('notifications.index');
 });
+
 
 Route::get('/notifications-count', function () {
     $count = \App\Models\Notification::where('user_id', auth()->id())

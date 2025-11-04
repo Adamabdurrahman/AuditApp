@@ -19,6 +19,8 @@
                             1 => 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
                             2 => 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300',
                             3 => 'border-red-500 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300',
+                            4 => 'border-purple-500 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
+                            5 => 'border-green-600 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300',
                             default => 'border-gray-300 bg-gray-50 dark:bg-gray-900/30 text-gray-300'
                         };
                     @endphp
@@ -42,7 +44,18 @@
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.054 0 1.658-1.14 1.086-2.05L13.086 4.95a1.25 1.25 0 00-2.172 0L4.996 16.95c-.572.91.032 2.05 1.086 2.05z" />
                                     </svg>
+                                @elseif($notif->notificationstype_id == 4)
+                                    <svg class="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 8v8m0 0l3-3m-3 3l-3-3M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                                    </svg>
+                                @elseif($notif->notificationstype_id == 5)
+                                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M5 13l4 4L19 7" />
+                                    </svg>
                                 @endif
+
 
                                 <div>
                                     <p class="font-semibold">{{ $notif->title }}</p>
