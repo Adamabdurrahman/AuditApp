@@ -20,6 +20,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use App\Models\User;
 
@@ -960,10 +961,16 @@ class AdminController extends Controller
             ->with('success', "{$user->name}'s role has been updated successfully!");
     }
 
-    public function getFinLossDonut()
+
+    public function getFinLossDonut(Request $request)
     {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
+        $start = $request->query('from')
+            ? Carbon::parse($request->query('from'))->startOfDay()
+            : Carbon::now()->subMonths(2)->startOfMonth();
+
+        $end = $request->query('to')
+            ? Carbon::parse($request->query('to'))->endOfDay()
+            : Carbon::now()->addMonths(2)->endOfMonth();
 
         $query = \App\Models\AuditForm::query()
             ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
@@ -988,12 +995,23 @@ class AdminController extends Controller
         return response()->json($data);
     }
 
-    public function getImprovementChart()
+    public function getImprovementChart(Request $request)
     {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
+        // Ambil parameter filter dari request
+        $start = $request->query('from')
+            ? Carbon::parse($request->query('from'))->startOfDay()
+            : Carbon::now()->subMonths(2)->startOfMonth();
 
-        // Siapkan list 5 bulan ke depan/belakang
+        $end = $request->query('to')
+            ? Carbon::parse($request->query('to'))->endOfDay()
+            : Carbon::now()->addMonths(2)->endOfMonth();
+
+        Log::info('Improvement filter range', [
+        'from' => $start,
+        'to' => $end
+        ]);
+
+        // Siapkan list bulan dari start ke end
         $months = collect();
         for ($m = $start->copy(); $m <= $end; $m->addMonth()) {
             $months->push($m->format('M'));
@@ -1001,7 +1019,7 @@ class AdminController extends Controller
 
         // Ambil data kategori 'Improvement'
         $query = \App\Models\AuditForm::query()
-            ->whereHas('kategori', fn($q) => $q->where('name', 'Improvement'))
+            ->where('kategori_id', 3)
             ->whereBetween('tanggal_temuan', [$start, $end])
             ->with('priority');
 
@@ -1025,18 +1043,24 @@ class AdminController extends Controller
         return response()->json($data);
     }
 
-    public function getNonComplianceChart()
+    public function getNonComplianceChart(Request $request)
     {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
+        // Ambil parameter filter dari request
+        $start = $request->query('from')
+            ? Carbon::parse($request->query('from'))->startOfDay()
+            : Carbon::now()->subMonths(2)->startOfMonth();
 
-        // Daftar bulan yang ingin ditampilkan (5 total)
+        $end = $request->query('to')
+            ? Carbon::parse($request->query('to'))->endOfDay()
+            : Carbon::now()->addMonths(2)->endOfMonth();
+
+        // Daftar bulan dalam rentang
         $months = collect();
         for ($m = $start->copy(); $m <= $end; $m->addMonth()) {
-            $months->push($m->format('M'));
+            $months->push($m->format('Y-m'));
         }
 
-        // Ambil data dari kategori Non-Compliance
+        // Ambil data kategori 'Non Compliance'
         $query = \App\Models\AuditForm::query()
             ->whereHas('kategori', fn($q) => $q->where('name', 'Non Compliance'))
             ->whereBetween('tanggal_temuan', [$start, $end])
@@ -1044,11 +1068,10 @@ class AdminController extends Controller
 
         $grouped = $query->get()->groupBy([
             fn($a) => strtolower(optional($a->priority)->name ?? 'unknown'),
-            fn($a) => Carbon::parse($a->tanggal_temuan)->format('M'),
+            fn($a) => Carbon::parse($a->tanggal_temuan)->format('Y-m'),
         ]);
 
         $priorities = ['high', 'medium', 'low'];
-
         $dataPoints = [];
 
         foreach ($months as $month) {
@@ -1068,5 +1091,125 @@ class AdminController extends Controller
             'data' => $dataPoints
         ]);
     }
+
+    public function getFinLossRecoveryChart(Request $request)
+{
+    info('=== [DEBUG] Mulai getFinLossRecoveryChart ===');
+
+    // 1️⃣ PARSING TANGGAL
+    try {
+        $start = $request->query('from')
+            ? Carbon::createFromFormat('Y-m-d', $request->query('from'))->startOfDay()
+            : Carbon::now()->subYear()->startOfMonth();
+
+        $end = $request->query('to')
+            ? Carbon::createFromFormat('Y-m-d', $request->query('to'))->endOfDay()
+            : Carbon::now()->endOfMonth();
+
+        info('[DEBUG] Range waktu dipakai:', [
+            'from' => $start->toDateTimeString(),
+            'to' => $end->toDateTimeString(),
+        ]);
+    } catch (\Exception $e) {
+        info('[ERROR] Gagal parsing tanggal:', ['message' => $e->getMessage()]);
+        return response()->json(['error' => 'Format tanggal tidak valid'], 400);
+    }
+
+    // 2️⃣ AMBIL KURS
+    $exchangeRate = 15000;
+    try {
+        $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
+        if ($response->successful()) {
+            $exchangeRate = $response->json('rates.IDR');
+            info('[DEBUG] Kurs berhasil diambil: ' . $exchangeRate);
+        } else {
+            info('[WARN] Gagal ambil kurs, pakai default 15000');
+        }
+    } catch (\Exception $e) {
+        info('[ERROR] API kurs gagal:', ['message' => $e->getMessage()]);
+    }
+
+    // 3️⃣ AMBIL DATA AUDIT FORM
+    $forms = \App\Models\AuditForm::with(['findlossdetails', 'assessments.recoveries'])
+        ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
+        ->whereHas('subkategori', fn($q) => $q->where('name', 'Recovery'))
+        ->whereBetween('tanggal_temuan', [$start, $end])
+        ->orderBy('tanggal_temuan', 'asc')
+        ->get();
+
+    info('[DEBUG] Jumlah AuditForm ditemukan: ' . $forms->count());
+
+    // 4️⃣ PROSES GROUPING
+    $grouped = $forms->groupBy(fn($f) => Carbon::parse($f->tanggal_temuan)->format('M Y'));
+
+    // Buat list bulan
+    $months = [];
+    $current = (clone $start)->startOfMonth();
+    while ($current <= $end) {
+        $months[] = $current->format('M Y');
+        $current->addMonth();
+    }
+    info('[DEBUG] Total bulan di sumbu X: ' . count($months));
+
+    // 5️⃣ INISIALISASI DATA
+    $finlossData = array_fill(0, count($months), 0);
+    $recoveryData = array_fill(0, count($months), 0);
+    $restInputData = array_fill(0, count($months), 0);
+    $restOutputData = array_fill(0, count($months), 0);
+    $auditLinkData = [];
+    $sisaOutputPrev = 0;
+
+    // 6️⃣ LOOP PER BULAN
+    foreach ($months as $i => $month) {
+        $formsInMonth = $grouped[$month] ?? collect();
+        $kerugian = $formsInMonth->sum(fn($f) => $f->findlossdetails->sum('nilai'));
+        $recovery = $formsInMonth->sum(fn($f) => $f->assessments->sum(fn($as) => $as->recoveries->sum('nilai')));
+        $sisaInput = $sisaOutputPrev;
+        $sisaOutput = ($kerugian + $sisaInput) - $recovery;
+
+        $finlossData[$i] = $kerugian;
+        $recoveryData[$i] = $recovery;
+        $restInputData[$i] = $sisaInput;
+        $restOutputData[$i] = $sisaOutput;
+
+        $sisaOutputPrev = $sisaOutput;
+
+        info("[DEBUG] {$month} → FinLoss: {$kerugian}, Recovery: {$recovery}, SisaOut: {$sisaOutput}");
+
+        foreach ($formsInMonth as $form) {
+            $tanggal = Carbon::parse($form->tanggal_temuan)->format('d - m - Y');
+            $auditLinkData[$tanggal][] = [
+                'id' => $form->id,
+                'title' => $form->judul_temuan,
+            ];
+        }
+    }
+
+    // 7️⃣ TOTAL
+    $totals = [
+        'finloss_rp' => array_sum($finlossData),
+        'recovery_rp' => array_sum($recoveryData),
+        'restinput_rp' => end($restInputData) ?? 0,
+        'restoutput_rp' => end($restOutputData) ?? 0,
+    ];
+    info('[DEBUG] Total akhir:', $totals);
+
+    info('=== [DEBUG] getFinLossRecoveryChart SELESAI ===');
+
+    return response()->json([
+        'labels' => $months,
+        'series' => [
+            ['name' => 'Fin Loss', 'data' => $finlossData],
+            ['name' => 'Recovery', 'data' => $recoveryData],
+            ['name' => 'Rest Output', 'data' => $restOutputData],
+            ['name' => 'Rest Input', 'data' => $restInputData],
+        ],
+        'totals' => $totals,
+        'audit_links' => $auditLinkData,
+    ]);
+}
+
+
+
 
 }

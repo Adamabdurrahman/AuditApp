@@ -119,6 +119,10 @@ Route::middleware(['auth'])
 
         Route::get('/dashboard/data/noncompliance', [App\Http\Controllers\Admin\AdminController::class, 'getNonComplianceChart'])
             ->name('dashboard.noncompliance');
+        
+        Route::get('/dashboard/data/finloss-recovery', [App\Http\Controllers\Admin\AdminController::class, 'getFinLossRecoveryChart'])
+            ->name('dashboard.finloss-recovery');
+
     });
 
 

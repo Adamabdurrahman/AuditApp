@@ -4,9 +4,13 @@
         <div class="flex justify-between h-16">
             <div class="flex">
                 <!-- Logo -->
-                <div class="shrink-0 flex items-center">
+                <div class="shrink-0 justify-center flex items-center gap-3">
                     <a href="{{ route('dashboard') }}">
                         <x-application-logo class="block h-auto w-20 fill-current text-gray-800 dark:text-gray-200" />
+                    </a>
+                    <div class="hidden h-10 w-px bg-gray-400 dark:bg-gray-600"></div>
+                    <a href="{{ route('dashboard') }}">
+                        <x-sinarmas-logo class="block h-auto w-20 fill-current text-gray-800 dark:text-gray-200 -mt-3" />
                     </a>
                 </div>
 

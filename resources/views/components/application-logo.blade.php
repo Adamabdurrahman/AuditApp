@@ -3,3 +3,6 @@
 </svg> --}}
 
 <img src="{{ asset('images/logo.png') }}" alt="Logo" {{ $attributes }}>
+{{-- <img src="{{ asset('images/Sinarmas.png') }}" alt="Logo" {{ $attributes }}> --}}
+
+
