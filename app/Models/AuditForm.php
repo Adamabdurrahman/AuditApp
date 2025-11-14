@@ -26,7 +26,8 @@ class AuditForm extends Model
         'reminder_id',
         'rekomendasi_author',
         'catatan_tambahan',
-        'status_id'
+        'status_id',
+        'audit_plan_id'
     ];
 
     // Relasi
@@ -78,6 +79,11 @@ class AuditForm extends Model
     public function assessments()
     {
         return $this->hasMany(Assessment::class, 'audit_form_id');
+    }
+
+    public function auditPlan()
+    {
+        return $this->belongsTo(AuditPlan::class, 'audit_plan_id');
     }
 
     protected static function booted()

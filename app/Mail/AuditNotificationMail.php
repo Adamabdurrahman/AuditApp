@@ -32,7 +32,8 @@ class AuditNotificationMail extends Mailable implements ShouldQueue
      */
     public function build()
     {
-        return $this->subject($this->subjectLine)
+        return $this->from(config('mail.from.address'), config('mail.from.name'))
+                    ->subject($this->subjectLine)
                     ->view('emails.audit_notification')
                     ->with([
                         'title' => $this->title,

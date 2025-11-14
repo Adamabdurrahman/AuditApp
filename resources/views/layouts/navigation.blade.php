@@ -6,7 +6,7 @@
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
                     <a href="{{ route('dashboard') }}">
-                        <x-application-logo class="block h-auto w-20 fill-current text-gray-800 dark:text-gray-200" />
+                        <x-application-logo class="block" />
                     </a>
                 </div>
 
@@ -38,6 +38,9 @@
                             </x-nav-link>
                             <x-nav-link :href="route('admin.findings')" :active="request()->routeIs('admin.findings')">
                                 {{ __('Findings') }}
+                            </x-nav-link>
+                            <x-nav-link :href="route('admin.plans.index')" :active="request()->routeIs('admin.plans.*')">
+                                {{ __('Audit Plans') }}
                             </x-nav-link>
                             {{-- <x-nav-link :href="route('admin.report')" :active="request()->routeIs('admin.report')">
                                 {{ __('Report') }}
@@ -173,12 +176,11 @@
                         </x-dropdown-link>
 
                         <!-- Authentication -->
-                        <form method="POST" action="{{ route('logout') }}">
+                        <form id="logout-form" method="POST" action="{{ route('logout') }}">
                             @csrf
 
                             <x-dropdown-link :href="route('logout')"
-                                    onclick="event.preventDefault();
-                                                this.closest('form').submit();">
+                                    onclick="event.preventDefault(); triggerLogout('logout-form');">
                                 {{ __('Log Out') }}
                             </x-dropdown-link>
                         </form>
@@ -219,12 +221,11 @@
                 </x-responsive-nav-link>
 
                 <!-- Authentication -->
-                <form method="POST" action="{{ route('logout') }}">
+                <form id="logout-form-mobile" method="POST" action="{{ route('logout') }}">
                     @csrf
 
                     <x-responsive-nav-link :href="route('logout')"
-                            onclick="event.preventDefault();
-                                        this.closest('form').submit();">
+                            onclick="event.preventDefault(); triggerLogout('logout-form-mobile');">
                         {{ __('Log Out') }}
                     </x-responsive-nav-link>
                 </form>
@@ -234,6 +235,53 @@
 
     {{-- script untuk nontifikasi --}}
     <script>
+        function triggerLogout(formId) {
+            event.preventDefault();
+            
+            // Putar suara "Thank you and have a nice day"
+            const utterance = new SpeechSynthesisUtterance('Thank you and have a nice day');
+            utterance.lang = 'en-US';
+            utterance.rate = 0.9;
+            utterance.pitch = 1.2; // Nada lebih tinggi untuk suara wanita
+            
+            // Mencari suara wanita
+            const voices = window.speechSynthesis.getVoices();
+            const femaleVoice = voices.find(voice => 
+                voice.name.includes('Female') || 
+                voice.name.includes('female') ||
+                voice.name.includes('Google US English') ||
+                voice.name.includes('Microsoft Zira')
+            );
+            
+            if (femaleVoice) {
+                utterance.voice = femaleVoice;
+            }
+            
+            // Tampilkan halaman logout sederhana
+            document.body.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #ffffff; font-family: Arial, sans-serif; color: #1f2937;">
+                    <div style="text-align: center; margin-bottom: 24px;">
+                        <h1 style="font-size: 40px; font-weight: bold; margin-bottom: 8px;">Logging Out...</h1>
+                        <p style="font-size: 18px; color: #6b7280;">Thank you and have a nice day!</p>
+                    </div>
+                    <a href="{{ route('login') }}" style="display: inline-flex; align-items: center; justify-content: center; padding: 12px 24px; background-color: #2563eb; color: #ffffff; border-radius: 9999px; font-weight: 600; text-decoration: none; transition: background-color 0.2s;">
+                        Back to Login
+                    </a>
+                </div>
+            `;
+            
+            // Putar suara
+            window.speechSynthesis.speak(utterance);
+            
+            // Submit form setelah 3 detik
+            setTimeout(() => {
+                const form = document.getElementById(formId);
+                if (form) {
+                    form.submit();
+                }
+            }, 3000);
+        }
+
         function markNotificationAsRead(id) {
             fetch(`/notifications/${id}/read`, {
                 method: 'POST',

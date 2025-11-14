@@ -38,13 +38,8 @@
                         <div>
                             <p class="text-gray-500 dark:text-gray-400">Auditee</p>
                             <p class="font-semibold text-gray-800 dark:text-gray-200">
-                                {{ $finding->reminder->pt ?? 'PT NULL' }}
+                                {{ $finding->reminder->email ?? '—' }}
                             </p>
-                            @if(!empty($finding->reminder->nama))
-                                <cite class="block text-left font-semibold text-gray-500 mt-1">
-                                    - {{ $finding->reminder->nama }} (Auditee)
-                                </cite>
-                            @endif
                         </div>
 
 

@@ -6,11 +6,14 @@ use App\Http\Controllers\Admin\AdminController;
 use App\Models\User;
 use App\Http\Controllers\User\UserController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\Admin\AuditPlanController;
 use Illuminate\Support\Facades\Mail;
 
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::view('/logout/thank-you', 'thankyou')->name('logout.thankyou');
 
 Route::get('/dashboard', function () {
     $user = auth()->user();
@@ -52,8 +55,20 @@ Route::middleware(['auth', 'can:access-admin-area'])
     Route::post('/findlossdetail/{auditFormId}', [AdminController::class, 'addFindLossDetail'])
     ->name('findlossdetail.add');
 
+    Route::put('/findlossdetail/{id}', [AdminController::class, 'updateFindLossDetail'])
+    ->name('findlossdetail.update');
+
     Route::delete('/findlossdetail/{id}', [AdminController::class, 'deleteFindLossDetail'])
     ->name('findlossdetail.delete');
+
+    Route::post('/findlossdetail/{detail}/recovery', [AdminController::class, 'storeFindLossRecovery'])
+    ->name('findlossdetail.recovery.store');
+
+    Route::put('/findlossdetail/recovery/{id}', [AdminController::class, 'updateFindLossRecovery'])
+    ->name('findlossdetail.recovery.update');
+
+    Route::delete('/findlossdetail/recovery/{id}', [AdminController::class, 'deleteFindLossRecovery'])
+    ->name('findlossdetail.recovery.delete');
 
     Route::post('/findings/{id}/extend', [AdminController::class, 'extendDueDate'])
     ->name('findings.extend');
@@ -64,6 +79,13 @@ Route::middleware(['auth', 'can:access-admin-area'])
     Route::delete('/attachments/{id}', [AdminController::class, 'deleteAttachment'])
     ->name('findings.deleteAttachment');
 
+    Route::get('/plans', [AuditPlanController::class, 'index'])->name('plans.index');
+    Route::get('/plans/create', [AuditPlanController::class, 'create'])->name('plans.create');
+    Route::post('/plans', [AuditPlanController::class, 'store'])->name('plans.store');
+    Route::get('/plans/{plan}/edit', [AuditPlanController::class, 'edit'])->name('plans.edit');
+    Route::put('/plans/{plan}', [AuditPlanController::class, 'update'])->name('plans.update');
+    Route::delete('/plans/{plan}', [AuditPlanController::class, 'destroy'])->name('plans.destroy');
+    Route::get('/plans/{plan}', [AuditPlanController::class, 'show'])->name('plans.show');
 
     // Di dalam grup admin
     Route::get('/findings/{id}/assessment', [AdminController::class, 'showAssessment'])
@@ -110,6 +132,7 @@ Route::middleware(['auth', 'can:access-admin-area'])
 
 Route::middleware(['auth'])
     ->prefix('admin')
+    ->name('admin.')
     ->group(function () {
         Route::get('/dashboard/data/finloss', [App\Http\Controllers\Admin\AdminController::class, 'getFinLossDonut'])
             ->name('dashboard.finloss');
@@ -119,6 +142,21 @@ Route::middleware(['auth'])
 
         Route::get('/dashboard/data/noncompliance', [App\Http\Controllers\Admin\AdminController::class, 'getNonComplianceChart'])
             ->name('dashboard.noncompliance');
+
+        Route::get('/dashboard/data/status', [App\Http\Controllers\Admin\AdminController::class, 'getStatusChart'])
+            ->name('dashboard.status');
+
+        Route::get('/dashboard/data/finloss-global', [App\Http\Controllers\Admin\AdminController::class, 'getFinLossGlobalChart'])
+            ->name('dashboard.finlossGlobal');
+
+        Route::get('/dashboard/data/finloss-findings', [App\Http\Controllers\Admin\AdminController::class, 'getFinLossFindingBreakdown'])
+            ->name('dashboard.finlossFindings');
+
+        Route::get('/dashboard/data/report-titles', [App\Http\Controllers\Admin\AdminController::class, 'getReportTitleDistribution'])
+            ->name('dashboard.reportTitles');
+        
+        Route::get('/dashboard/data/audit-recap', [App\Http\Controllers\Admin\AdminController::class, 'getAuditRecapChart'])
+            ->name('dashboard.auditRecap');
     });
 
 
@@ -150,11 +188,11 @@ Route::post('/notifications/{id}/read', [App\Http\Controllers\NotificationContro
     ->name('notifications.markAsRead');
 
 Route::get('/test-email', function () {
-    Mail::raw('Halo! Ini tes kedua kali email dari AuditApp via Brevo SMTP.', function ($message) {
-        $message->to('adamabdurrahman378@gmail.com')
+    Mail::raw('Halo! Ini tes email dari AuditApp via Brevo SMTP.', function ($message) {
+        $message->to('melvi09januari@gmail.com')
                 ->subject('✅ Tes Email dari AuditApp');
     });
-    return '✅ Email test berhasil dikirim!';
+    return '✅ Email test berhasil dikirim ke melvi09januari@gmail.com! Silakan cek inbox/spam.';
 });
 
 require __DIR__.'/auth.php';

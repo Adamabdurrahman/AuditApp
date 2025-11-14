@@ -84,33 +84,20 @@
                             </div>
                         </div>
 
-                        <!-- Sisa Output -->
+                        <!-- Sisa Outstanding -->
                         <div class="flex items-center gap-3 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M12 8v4l3 3m-3 5a9 9 0 110-18 9 9 0 010 18z" />
                             </svg>
                             <div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400">Sisa Output</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Sisa Outstanding</p>
                                 <p class="font-semibold text-blue-600 dark:text-blue-400">
                                     Rp {{ number_format($sisaOutputNow ?? 0, 0, ',', '.') }}
                                 </p>
                             </div>
                         </div>
 
-                        <!-- Sisa Input -->
-                        <div class="flex items-center gap-3 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 8v4l3 3m-3 5a9 9 0 110-18 9 9 0 010 18z" />
-                            </svg>
-                            <div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400">Sisa Input</p>
-                                <p class="font-semibold text-yellow-600 dark:text-yellow-400">
-                                    Rp {{ number_format($sisaInputNow ?? 0, 0, ',', '.') }}
-                                </p>
-                            </div>
-                        </div>
 
                     </div>
                 </div>
@@ -309,88 +296,380 @@
                         <!-- Tab 2: Fin Loss Detail -->
                         <div id="loss-tab" class="tab-pane hidden">
                             <div class="bg-white dark:bg-gray-800 rounded-xl shadow p-6 border border-gray-200 dark:border-gray-700">
-                                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">Fin Loss Detail</h3>
-                                @if($finding->kategori->name === 'Fin Loss' && $finding->findlossdetails->isNotEmpty())
-                                    
-                                    <!-- Form Tambah Item Fin Loss -->
-                                    <div id="addLossForm" class="mb-6 border-b border-gray-200 dark:border-gray-700 pb-4">
-                                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Deskripsi Kerugian</label>
-                                                <input type="text" id="newLossItem" placeholder="e.g. Api, Pasir"
-                                                    class="w-full mt-1 px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
-                                            </div>
-                                            <div>
-                                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Nilai Kerugian (Rp)</label>
-                                                <div class="relative mt-1">
-                                                    <span class="absolute left-3 top-2.5 text-gray-500">Rp</span>
-                                                    <input type="number" id="newLossValue" placeholder="0"
-                                                        class="w-full pl-8 px-3 py-2 border rounded-md dark:bg-gray-700 dark:text-gray-100 focus:ring-2 focus:ring-blue-500">
+                                <div class="flex items-center justify-between mb-4">
+                                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-200">Fin Loss Detail</h3>
+                                    <button type="button" id="openAddFinLossModal" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" />
+                                        </svg>
+                                        Tambah Fin Loss
+                                    </button>
+                                </div>
+                                @if($finding->kategori->name === 'Fin Loss')
+                                    @php
+                                        $lossTotal = $finding->findlossdetails->sum('nilai');
+                                        $lossTotalUsd = $finding->findlossdetails->sum(fn($d) => $d->nilai_usd ?? 0);
+                                        $paidTotal = $finding->findlossdetails->sum(fn($d) => $d->paid_amount ?? 0);
+                                        $paidTotalUsd = $finding->findlossdetails->sum(fn($d) => $d->paid_amount_usd ?? 0);
+                                        $remainingTotal = $finding->findlossdetails->sum(fn($d) => max(($d->nilai ?? 0) - ($d->paid_amount ?? 0), 0));
+                                        $remainingTotalUsd = $finding->findlossdetails->sum(fn($d) => max(($d->nilai_usd ?? 0) - ($d->paid_amount_usd ?? 0), 0));
+                                    @endphp
+
+                                    <div class="overflow-x-auto" id="finLossTableWrapper">
+                                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                            <thead>
+                                                <tr>
+                                                    <th class="px-4 py-2 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Item</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Nilai Kerugian (Rp)</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Nilai Kerugian (USD)</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Total Recovery (Rp)</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Total Recovery (USD)</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Sisa (Rp)</th>
+                                                    <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Sisa (USD)</th>
+                                                    <th class="px-4 py-2 text-center text-sm font-medium text-gray-500 dark:text-gray-400">Aksi</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                                @forelse($finding->findlossdetails as $detail)
+                                                    @php
+                                                        $paidAmount = $detail->paid_amount ?? 0;
+                                                        $paidAmountUsd = $detail->paid_amount_usd ?? 0;
+                                                        $remaining = max(($detail->nilai ?? 0) - $paidAmount, 0);
+                                                        $remainingUsd = max(($detail->nilai_usd ?? 0) - $paidAmountUsd, 0);
+                                                    @endphp
+                                                    <tr>
+                                                        <td class="px-4 py-2 text-sm text-gray-900 dark:text-gray-200 font-medium">{{ $detail->item }}</td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-red-600 dark:text-red-400">
+                                                            Rp {{ number_format($detail->nilai, 0, ',', '.') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-blue-600 dark:text-blue-300">
+                                                            USD {{ number_format((float) ($detail->nilai_usd ?? 0), 2, '.', ',') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                            Rp {{ number_format($paidAmount, 0, ',', '.') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-emerald-600 dark:text-emerald-300">
+                                                            USD {{ number_format((float) $paidAmountUsd, 2, '.', ',') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-blue-600 dark:text-blue-300">
+                                                            Rp {{ number_format($remaining, 0, ',', '.') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-right font-semibold text-blue-600 dark:text-blue-300">
+                                                            USD {{ number_format((float) $remainingUsd, 2, '.', ',') }}
+                                                        </td>
+                                                        <td class="px-4 py-2 text-sm text-center space-x-2">
+                                                            <button
+                                                                type="button"
+                                                                class="toggle-recovery inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500 text-emerald-600 text-xs font-semibold hover:bg-emerald-50 dark:text-emerald-300"
+                                                                data-target="recovery-{{ $detail->id }}"
+                                                            >
+                                                                Riwayat Recovery
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="edit-detail inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-blue-100 text-blue-600 text-xs font-semibold hover:bg-blue-200"
+                                                                data-id="{{ $detail->id }}"
+                                                                data-item="{{ $detail->item }}"
+                                                                data-nilai="{{ $detail->nilai ?? 0 }}"
+                                                                data-nilai-usd="{{ $detail->nilai_usd ?? 0 }}"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button class="delete-detail inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-red-100 text-red-600 text-xs font-semibold hover:bg-red-200" data-id="{{ $detail->id }}" title="Hapus item">
+                                                                Hapus
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                    <tr id="recovery-{{ $detail->id }}" class="hidden bg-gray-50 dark:bg-gray-800/40">
+                                                        <td colspan="8" class="px-4 py-4">
+                                                            <div class="flex flex-col gap-4">
+                                                                <div class="flex flex-col md:flex-row md:items-end gap-3">
+                                                                    <div class="flex-1">
+                                                                        <label class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Jumlah Recovery (Rp)</label>
+                                                                        <div class="relative">
+                                                                            <span class="absolute left-3 top-2 text-xs text-gray-500">Rp</span>
+                                                                            <input type="number" step="0.01" min="0.01"
+                                                                                class="recovery-amount-input w-full pl-8 pr-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+                                                                                placeholder="Masukkan jumlah"
+                                                                                data-detail="{{ $detail->id }}">
+                                                                        </div>
+                                                                    </div>
+                                                                    <div class="flex-1">
+                                                                        <label class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Jumlah Recovery (USD)</label>
+                                                                        <div class="relative">
+                                                                            <span class="absolute left-3 top-2 text-xs text-gray-500">USD</span>
+                                                                            <input type="number" step="0.01" min="0"
+                                                                                class="recovery-amount-usd-input w-full pl-10 pr-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+                                                                                placeholder="Masukkan jumlah"
+                                                                                data-detail="{{ $detail->id }}">
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Tanggal Recovery</label>
+                                                                        <input type="date" class="recovery-date-input w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+                                                                            data-detail="{{ $detail->id }}"
+                                                                            value="{{ now()->format('Y-m-d') }}">
+                                                                    </div>
+                                                                    <div class="flex-1">
+                                                                        <label class="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Catatan (opsional)</label>
+                                                                        <input type="text" class="recovery-notes-input w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm"
+                                                                            data-detail="{{ $detail->id }}"
+                                                                            placeholder="Contoh: Cicilan ke-1">
+                                                                    </div>
+                                                                    <button
+                                                                        class="add-recovery-btn inline-flex items-center px-4 py-2 rounded bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
+                                                                        data-detail="{{ $detail->id }}"
+                                                                    >Tambah Recovery</button>
+                                                                </div>
+
+                                                                <div class="overflow-x-auto">
+                                                                    <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg">
+                                                                        <thead class="bg-gray-100 dark:bg-gray-700/60 text-xs text-gray-600 dark:text-gray-300 uppercase">
+                                                                            <tr>
+                                                                                <th class="px-3 py-2 text-left">Tanggal</th>
+                                                                                <th class="px-3 py-2 text-right">Jumlah (Rp)</th>
+                                                                                <th class="px-3 py-2 text-right">Jumlah (USD)</th>
+                                                                                <th class="px-3 py-2 text-left">Catatan</th>
+                                                                                <th class="px-3 py-2 text-center">Aksi</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody class="bg-white dark:bg-gray-900 text-sm">
+                                                                            @forelse($detail->recoveries as $recovery)
+                                                                                <tr>
+                                                                                    <td class="px-3 py-2 text-gray-700 dark:text-gray-300">{{ optional($recovery->recorded_at)->format('d M Y') ?? '—' }}</td>
+                                                                                    <td class="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">Rp {{ number_format($recovery->amount, 0, ',', '.') }}</td>
+                                                                                    <td class="px-3 py-2 text-right text-emerald-600 dark:text-emerald-300">USD {{ number_format((float) ($recovery->amount_usd ?? 0), 2, '.', ',') }}</td>
+                                                                                    <td class="px-3 py-2 text-gray-600 dark:text-gray-400">{{ $recovery->notes ?? '—' }}</td>
+                                                                                    <td class="px-3 py-2 text-center">
+                                                                                        <button class="edit-recovery inline-flex items-center justify-center px-2 py-1 rounded bg-blue-100 text-blue-600 text-xs font-semibold hover:bg-blue-200"
+                                                                                            data-id="{{ $recovery->id }}"
+                                                                                            data-amount="{{ $recovery->amount ?? 0 }}"
+                                                                                            data-amount-usd="{{ $recovery->amount_usd ?? 0 }}"
+                                                                                            data-recorded-at="{{ optional($recovery->recorded_at)->format('Y-m-d') }}"
+                                                                                            data-notes="{{ $recovery->notes ?? '' }}"
+                                                                                        >
+                                                                                            Edit
+                                                                                        </button>
+                                                                                        <button class="delete-recovery inline-flex items-center justify-center px-2 py-1 rounded bg-red-100 text-red-600 text-xs font-semibold hover:bg-red-200"
+                                                                                            data-id="{{ $recovery->id }}">
+                                                                                            Hapus
+                                                                                        </button>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            @empty
+                                                                                <tr>
+                                                                                    <td colspan="5" class="px-3 py-4 text-center text-gray-500 dark:text-gray-400 text-sm">Belum ada data recovery.</td>
+                                                                                </tr>
+                                                                            @endforelse
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                @empty
+                                                    <tr>
+                                                        <td colspan="8" class="px-4 py-6 text-center text-gray-500 dark:text-gray-400">Belum ada detail kerugian.</td>
+                                                    </tr>
+                                                @endforelse
+
+                                                <tr class="font-bold bg-gray-50 dark:bg-gray-700/50">
+                                                    <td class="px-4 py-2">Total</td>
+                                                    <td class="px-4 py-2 text-right text-red-700 dark:text-red-300">
+                                                        Rp {{ number_format($lossTotal, 0, ',', '.') }}
+                                                    </td>
+                                                    <td class="px-4 py-2 text-right text-blue-700 dark:text-blue-300">
+                                                        USD {{ number_format((float) $lossTotalUsd, 2, '.', ',') }}
+                                                    </td>
+                                                    <td class="px-4 py-2 text-right text-emerald-700 dark:text-emerald-300">
+                                                        Rp {{ number_format($paidTotal, 0, ',', '.') }}
+                                                    </td>
+                                                    <td class="px-4 py-2 text-right text-emerald-700 dark:text-emerald-300">
+                                                        USD {{ number_format((float) $paidTotalUsd, 2, '.', ',') }}
+                                                    </td>
+                                                    <td class="px-4 py-2 text-right text-blue-700 dark:text-blue-300">
+                                                        Rp {{ number_format($remainingTotal, 0, ',', '.') }}
+                                                    </td>
+                                                    <td class="px-4 py-2 text-right text-blue-700 dark:text-blue-300">
+                                                        USD {{ number_format((float) $remainingTotalUsd, 2, '.', ',') }}
+                                                    </td>
+                                                    <td></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    @if(!empty($detailCharts))
+                                        <div class="mt-8 space-y-10">
+                                            @foreach($detailCharts as $detailChart)
+                                                @php
+                                                    $detailId = $detailChart['detail_id'];
+                                                    $itemName = $detailChart['item'] ?? ('Detail #' . $detailId);
+                                                    $totalsIdr = $detailChart['totals']['idr'] ?? ['agreed' => 0, 'recovery' => 0, 'remaining' => 0];
+                                                    $totalsUsd = $detailChart['totals']['usd'] ?? ['agreed' => 0, 'recovery' => 0, 'remaining' => 0];
+                                                @endphp
+
+                                                <div class="bg-gray-50 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700 rounded-2xl p-6">
+                                                    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+                                                        <div>
+                                                            <h4 class="text-base font-semibold text-gray-800 dark:text-gray-200">{{ $itemName }}</h4>
+                                                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Grafik ini mengikuti saldo berjalan: sisa = sisa sebelumnya + temuan baru − recovery.</p>
+                                                        </div>
+                                                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-[220px]">
+                                                            <div class="px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50">
+                                                                <p class="text-[11px] uppercase tracking-wide text-blue-600 dark:text-blue-300 font-semibold">Total Temuan</p>
+                                                                <p class="text-sm font-bold text-gray-900 dark:text-gray-100 mt-1">Rp {{ number_format($totalsIdr['agreed'] ?? 0, 0, ',', '.') }}</p>
+                                                                <p class="text-xs text-gray-500 dark:text-gray-400">USD {{ number_format($totalsUsd['agreed'] ?? 0, 2, '.', ',') }}</p>
+                                                            </div>
+                                                            <div class="px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40">
+                                                                <p class="text-[11px] uppercase tracking-wide text-emerald-600 dark:text-emerald-300 font-semibold">Total Recovery</p>
+                                                                <p class="text-sm font-bold text-gray-900 dark:text-gray-100 mt-1">Rp {{ number_format($totalsIdr['recovery'] ?? 0, 0, ',', '.') }}</p>
+                                                                <p class="text-xs text-gray-500 dark:text-gray-400">USD {{ number_format($totalsUsd['recovery'] ?? 0, 2, '.', ',') }}</p>
+                                                            </div>
+                                                            <div class="px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
+                                                                <p class="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-300 font-semibold">Sisa Outstanding</p>
+                                                                <p class="text-sm font-bold text-gray-900 dark:text-gray-100 mt-1">Rp {{ number_format($totalsIdr['remaining'] ?? 0, 0, ',', '.') }}</p>
+                                                                <p class="text-xs text-gray-500 dark:text-gray-400">USD {{ number_format($totalsUsd['remaining'] ?? 0, 2, '.', ',') }}</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                                        <div class="h-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                                                            <h5 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Pergerakan Temuan vs Recovery (IDR)</h5>
+                                                            <canvas id="detail-chart-{{ $detailId }}-idr" data-detail="{{ $detailId }}"></canvas>
+                                                        </div>
+                                                        <div class="h-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                                                            <h5 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Pergerakan Temuan vs Recovery (USD)</h5>
+                                                            <canvas id="detail-chart-{{ $detailId }}-usd" data-detail="{{ $detailId }}"></canvas>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                            <div class="flex items-end">
-                                                <button id="addLossBtn"
-                                                    class="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 rounded-md transition">
-                                                    + Tambah Item
-                                                </button>
+                                            @endforeach
+                                        </div>
+                                    @else
+                                        <p class="mt-6 text-sm text-gray-500 dark:text-gray-400 text-center">Belum ada detail Fin Loss dengan data numeric untuk divisualisasikan.</p>
+                                    @endif
+
+                                    <!-- Modal Edit Fin Loss Detail -->
+                                    <div id="addFinLossModal" class="fixed inset-0 z-50 hidden">
+                                        <div class="absolute inset-0 bg-gray-900/60" data-close="modal"></div>
+                                        <div class="relative mx-auto mt-20 w-full max-w-md px-6">
+                                            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                                <div class="flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                                                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Tambah Fin Loss Detail</h3>
+                                                    <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" data-close="modal">✕</button>
+                                                </div>
+                                                <form id="addFinLossForm" class="px-5 py-4 space-y-4">
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Item</label>
+                                                        <input type="text" id="addFinLossItem" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" placeholder="Contoh: Kekurangan setoran" required>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nilai Kerugian (Rp)</label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">Rp</span>
+                                                            <input type="number" min="0" step="0.01" id="addFinLossAmount" class="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" placeholder="0" required>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nilai Kerugian (USD) <span class="text-gray-400 text-xs font-normal">(opsional)</span></label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">USD</span>
+                                                            <input type="number" min="0" step="0.01" id="addFinLossAmountUsd" class="w-full pl-12 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" placeholder="0.00">
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Tanggal Temuan <span class="text-gray-400 text-xs font-normal">(opsional)</span></label>
+                                                        <input type="date" id="addFinLossDate" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500">
+                                                    </div>
+                                                    <div class="flex justify-end space-x-2 pt-2">
+                                                        <button type="button" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700" data-close="modal">Batal</button>
+                                                        <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold">Simpan</button>
+                                                    </div>
+                                                </form>
                                             </div>
                                         </div>
                                     </div>
 
-                                    @if($finding->findlossdetails->isNotEmpty())
-                                        <div class="overflow-x-auto">
-                                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                                                <thead>
-                                                    <tr>
-                                                        <th class="px-4 py-2 text-left text-sm font-medium text-gray-500 dark:text-gray-400">Item</th>
-                                                        <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Nilai (Rp)</th>
-                                                        <th class="px-4 py-2 text-right text-sm font-medium text-gray-500 dark:text-gray-400">Nilai (USD)</th>
-                                                        <th class="px-4 py-2 text-center text-sm font-medium text-gray-500 dark:text-gray-400">Aksi</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                                    @php
-                                                        $exchangeRate = $exchangeRate ?? 15000; // dari knowledge base Anda
-                                                    @endphp
-                                                    @foreach($finding->findlossdetails as $detail)
-                                                        <tr data-detail-id="{{ $detail->id }}">
-                                                            <td class="px-4 py-2 text-sm text-gray-900 dark:text-gray-200">{{ $detail->item }}</td>
-                                                            <td class="px-4 py-2 text-sm text-right font-medium text-red-600 dark:text-red-400">
-                                                                Rp {{ number_format($detail->nilai, 0, ',', '.') }}
-                                                            </td>
-                                                            <td class="px-4 py-2 text-sm text-right font-medium text-blue-600 dark:text-blue-400">
-                                                                ${{ number_format($detail->nilai / $exchangeRate, 2) }}
-                                                            </td>
-                                                            <!-- 🔥 Tombol Hapus -->
-                                                            <td class="px-4 py-2 text-center">
-                                                                <button class="delete-detail text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" 
-                                                                        data-id="{{ $detail->id }}"
-                                                                        title="Hapus">
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                    </svg>
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    @endforeach
-
-                                                    <tr class="font-bold bg-gray-50 dark:bg-gray-700/50">
-                                                        <td class="px-4 py-2">Total</td>
-                                                        <td class="px-4 py-2 text-right text-red-700 dark:text-red-300">
-                                                            Rp {{ number_format($finding->findlossdetails->sum('nilai'), 0, ',', '.') }}
-                                                        </td>
-                                                        <td class="px-4 py-2 text-right text-blue-700 dark:text-blue-300">
-                                                            ${{ number_format($finding->findlossdetails->sum('nilai') / $exchangeRate, 2) }}
-                                                        </td>
-                                                    </tr>
-
-                                                </tbody>
-                                            </table>
+                                    <div id="editDetailModal" class="fixed inset-0 z-50 hidden">
+                                        <div class="absolute inset-0 bg-gray-900/60" data-close="modal"></div>
+                                        <div class="relative mx-auto mt-20 w-full max-w-md px-6">
+                                            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                                <div class="flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                                                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Edit Fin Loss Detail</h3>
+                                                    <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" data-close="modal">✕</button>
+                                                </div>
+                                                <form id="editDetailForm" class="px-5 py-4 space-y-4">
+                                                    <input type="hidden" id="editDetailId">
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Item</label>
+                                                        <input type="text" id="editDetailItem" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" required>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nilai Kerugian (Rp)</label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">Rp</span>
+                                                            <input type="number" min="0" step="0.01" id="editDetailNilai" class="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" required>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nilai Kerugian (USD)</label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">USD</span>
+                                                            <input type="number" min="0" step="0.01" id="editDetailNilaiUsd" class="w-full pl-12 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500">
+                                                        </div>
+                                                    </div>
+                                                    <div class="flex justify-end space-x-2 pt-2">
+                                                        <button type="button" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700" data-close="modal">Batal</button>
+                                                        <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold">Simpan</button>
+                                                    </div>
+                                                </form>
+                                            </div>
                                         </div>
-                                    @else
-                                        <p class="text-gray-600 dark:text-gray-400">Belum ada detail kerugian.</p>
-                                    @endif
+                                    </div>
+
+                                    <!-- Modal Edit Recovery -->
+                                    <div id="editRecoveryModal" class="fixed inset-0 z-50 hidden">
+                                        <div class="absolute inset-0 bg-gray-900/60" data-close="modal"></div>
+                                        <div class="relative mx-auto mt-24 w-full max-w-md px-6">
+                                            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                                <div class="flex justify-between items-center px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+                                                    <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Edit Recovery</h3>
+                                                    <button type="button" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" data-close="modal">✕</button>
+                                                </div>
+                                                <form id="editRecoveryForm" class="px-5 py-4 space-y-4">
+                                                    <input type="hidden" id="editRecoveryId">
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Jumlah Recovery (Rp)</label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">Rp</span>
+                                                            <input type="number" min="0" step="0.01" id="editRecoveryAmount" class="w-full pl-10 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" required>
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Jumlah Recovery (USD)</label>
+                                                        <div class="relative">
+                                                            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-xs text-gray-500">USD</span>
+                                                            <input type="number" min="0" step="0.01" id="editRecoveryAmountUsd" class="w-full pl-12 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500">
+                                                        </div>
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Tanggal Recovery</label>
+                                                        <input type="date" id="editRecoveryDate" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500">
+                                                    </div>
+                                                    <div>
+                                                        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Catatan</label>
+                                                        <input type="text" id="editRecoveryNotes" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-emerald-500 focus:border-emerald-500" placeholder="Catatan (opsional)">
+                                                    </div>
+                                                    <div class="flex justify-end space-x-2 pt-2">
+                                                        <button type="button" class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700" data-close="modal">Batal</button>
+                                                        <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold">Simpan</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
                                 @else
                                     <p class="text-gray-600 dark:text-gray-400">Tidak berlaku — kategori bukan Fin Loss.</p>
                                 @endif
@@ -524,7 +803,7 @@
                                         </div>
 
                                         <button id="extend-btn"
-                                            class="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm shadow">
+                                            class="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow">
                                             Extend
                                         </button>
                                     </div>
@@ -763,10 +1042,250 @@
                 }
 
                 // Delegasi event: klik tombol delete
+                const editModal = document.getElementById('editDetailModal');
+                const editForm = document.getElementById('editDetailForm');
+                const editIdInput = document.getElementById('editDetailId');
+                const editItemInput = document.getElementById('editDetailItem');
+                const editNilaiInput = document.getElementById('editDetailNilai');
+                const editNilaiUsdInput = document.getElementById('editDetailNilaiUsd');
+
+                const editRecoveryModal = document.getElementById('editRecoveryModal');
+                const editRecoveryForm = document.getElementById('editRecoveryForm');
+                const editRecoveryIdInput = document.getElementById('editRecoveryId');
+                const editRecoveryAmountInput = document.getElementById('editRecoveryAmount');
+                const editRecoveryAmountUsdInput = document.getElementById('editRecoveryAmountUsd');
+                const editRecoveryDateInput = document.getElementById('editRecoveryDate');
+                const editRecoveryNotesInput = document.getElementById('editRecoveryNotes');
+
+                const toggleModal = (modal, show) => {
+                    if (!modal) return;
+                    modal.classList.toggle('hidden', !show);
+                    document.body.classList.toggle('overflow-hidden', show);
+                };
+
+                const addFinLossModal = document.getElementById('addFinLossModal');
+                const addFinLossForm = document.getElementById('addFinLossForm');
+                const addFinLossItemInput = document.getElementById('addFinLossItem');
+                const addFinLossAmountInput = document.getElementById('addFinLossAmount');
+                const addFinLossAmountUsdInput = document.getElementById('addFinLossAmountUsd');
+                const addFinLossDateInput = document.getElementById('addFinLossDate');
+                const openAddFinLossModalBtn = document.getElementById('openAddFinLossModal');
+
+                const openEditModal = (detail) => {
+                    editIdInput.value = detail.id;
+                    editItemInput.value = detail.item;
+                    editNilaiInput.value = detail.nilai;
+                    editNilaiUsdInput.value = detail.nilaiUsd;
+                    toggleModal(editModal, true);
+                };
+
+                const closeEditModal = () => toggleModal(editModal, false);
+                const closeAddFinLossModal = () => toggleModal(addFinLossModal, false);
+
+                const openRecoveryModal = (recovery) => {
+                    editRecoveryIdInput.value = recovery.id;
+                    editRecoveryAmountInput.value = recovery.amount;
+                    editRecoveryAmountUsdInput.value = recovery.amountUsd;
+                    editRecoveryDateInput.value = recovery.recordedAt || '';
+                    editRecoveryNotesInput.value = recovery.notes || '';
+                    toggleModal(editRecoveryModal, true);
+                };
+
+                const closeRecoveryModal = () => toggleModal(editRecoveryModal, false);
+
+                document.querySelectorAll('#editDetailModal [data-close="modal"]').forEach(el => {
+                    el.addEventListener('click', closeEditModal);
+                });
+                document.querySelectorAll('#addFinLossModal [data-close="modal"]').forEach(el => {
+                    el.addEventListener('click', closeAddFinLossModal);
+                });
+                document.querySelectorAll('#editRecoveryModal [data-close="modal"]').forEach(el => {
+                    el.addEventListener('click', closeRecoveryModal);
+                });
+
+                document.addEventListener('keydown', (event) => {
+                    if (event.key === 'Escape') {
+                        closeEditModal();
+                        closeAddFinLossModal();
+                        closeRecoveryModal();
+                    }
+                });
+
+                if (openAddFinLossModalBtn) {
+                    openAddFinLossModalBtn.addEventListener('click', () => {
+                        addFinLossForm?.reset();
+                        toggleModal(addFinLossModal, true);
+                        setTimeout(() => addFinLossItemInput?.focus(), 100);
+                    });
+                }
+
+                if (addFinLossForm) {
+                    addFinLossForm.addEventListener('submit', async (event) => {
+                        event.preventDefault();
+
+                        const item = addFinLossItemInput.value.trim();
+                        const nilai = parseFloat(addFinLossAmountInput.value || '0');
+                        const nilaiUsd = parseFloat(addFinLossAmountUsdInput.value || '0');
+                        const recordedAt = addFinLossDateInput.value || null;
+
+                        if (!item || nilai <= 0) {
+                            return alert('Isi nama item dan nilai kerugian (Rp) minimal lebih dari 0.');
+                        }
+
+                        const payload = {
+                            item,
+                            nilai,
+                            nilai_usd: isNaN(nilaiUsd) ? 0 : nilaiUsd,
+                            recorded_at: recordedAt,
+                        };
+
+                        const submitBtn = addFinLossForm.querySelector('button[type="submit"]');
+                        const originalText = submitBtn.textContent;
+                        submitBtn.textContent = 'Menyimpan...';
+                        submitBtn.disabled = true;
+
+                        try {
+                            const res = await fetch(`/admin/findlossdetail/${findingId}`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': csrfToken,
+                                },
+                                body: JSON.stringify(payload),
+                            });
+
+                            if (!res.ok) {
+                                const data = await res.json().catch(() => null);
+                                throw new Error(data?.error || 'Gagal menambah detail.');
+                            }
+
+                            closeAddFinLossModal();
+                            location.reload();
+                        } catch (error) {
+                            alert(error.message || 'Terjadi kesalahan saat menyimpan detail.');
+                        } finally {
+                            submitBtn.textContent = originalText;
+                            submitBtn.disabled = false;
+                        }
+                    });
+                }
+
+                document.querySelectorAll('.edit-detail').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        openEditModal({
+                            id: btn.dataset.id,
+                            item: btn.dataset.item || '',
+                            nilai: btn.dataset.nilai || 0,
+                            nilaiUsd: btn.dataset.nilaiUsd || 0,
+                        });
+                    });
+                });
+
+                document.querySelectorAll('.edit-recovery').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        openRecoveryModal({
+                            id: btn.dataset.id,
+                            amount: btn.dataset.amount || 0,
+                            amountUsd: btn.dataset.amountUsd || 0,
+                            recordedAt: btn.dataset.recordedAt || '',
+                            notes: btn.dataset.notes || '',
+                        });
+                    });
+                });
+
+                if (editForm) {
+                    editForm.addEventListener('submit', async (event) => {
+                        event.preventDefault();
+                        const id = editIdInput.value;
+                        if (!id) return;
+
+                        const payload = {
+                            item: editItemInput.value.trim(),
+                            nilai: parseFloat(editNilaiInput.value || '0'),
+                            nilai_usd: parseFloat(editNilaiUsdInput.value || '0'),
+                        };
+
+                        const submitBtn = editForm.querySelector('button[type="submit"]');
+                        const originalText = submitBtn.textContent;
+                        submitBtn.textContent = 'Menyimpan...';
+                        submitBtn.disabled = true;
+
+                        try {
+                            const res = await fetch(`/admin/findlossdetail/${id}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': csrfToken,
+                                },
+                                body: JSON.stringify(payload),
+                            });
+
+                            if (!res.ok) {
+                                const data = await res.json().catch(() => null);
+                                throw new Error(data?.error || 'Gagal mengupdate detail.');
+                            }
+
+                            closeEditModal();
+                            location.reload();
+                        } catch (error) {
+                            alert(error.message || 'Terjadi kesalahan saat menyimpan perubahan.');
+                        } finally {
+                            submitBtn.textContent = originalText;
+                            submitBtn.disabled = false;
+                        }
+                    });
+                }
+
+                if (editRecoveryForm) {
+                    editRecoveryForm.addEventListener('submit', async (event) => {
+                        event.preventDefault();
+                        const id = editRecoveryIdInput.value;
+                        if (!id) return;
+
+                        const payload = {
+                            amount: parseFloat(editRecoveryAmountInput.value || '0'),
+                            amount_usd: parseFloat(editRecoveryAmountUsdInput.value || '0'),
+                            recorded_at: editRecoveryDateInput.value || null,
+                            notes: editRecoveryNotesInput.value || null,
+                        };
+
+                        const submitBtn = editRecoveryForm.querySelector('button[type="submit"]');
+                        const originalText = submitBtn.textContent;
+                        submitBtn.textContent = 'Menyimpan...';
+                        submitBtn.disabled = true;
+
+                        try {
+                            const res = await fetch(`/admin/findlossdetail/recovery/${id}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': csrfToken,
+                                },
+                                body: JSON.stringify(payload),
+                            });
+
+                            if (!res.ok) {
+                                const data = await res.json().catch(() => null);
+                                throw new Error(data?.error || 'Gagal mengupdate recovery.');
+                            }
+
+                            closeRecoveryModal();
+                            location.reload();
+                        } catch (error) {
+                            alert(error.message || 'Terjadi kesalahan saat menyimpan recovery.');
+                        } finally {
+                            submitBtn.textContent = originalText;
+                            submitBtn.disabled = false;
+                        }
+                    });
+                }
+
                 document.querySelectorAll('.delete-detail').forEach(btn => {
                     btn.addEventListener('click', async function () {
                         const id = this.dataset.id;
-                        const row = this.closest('tr');
 
                         if (!confirm('Apakah Anda yakin ingin menghapus detail ini?')) return;
 
@@ -778,12 +1297,7 @@
                             const data = await res.json();
 
                             if (data.success) {
-                                // Hapus baris dari tabel
-                                row.remove();
-
-                                // 🔄 Update total secara dinamis
-                                updateFinLossTotal();
-
+                                location.reload();
                             } else {
                                 alert('Gagal menghapus: ' + (data.error || 'Terjadi kesalahan'));
                             }
@@ -794,71 +1308,95 @@
                     });
                 });
 
-                function updateFinLossTotal() {
-                    const rows = document.querySelectorAll('tbody tr[data-detail-id]');
-                    let total = 0;
-                    rows.forEach(r => {
-                        const text = r.querySelector('td:nth-child(2)')?.textContent.replace(/[^\d]/g, '');
-                        total += parseFloat(text || 0);
-                    });
+                document.querySelectorAll('.toggle-recovery').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const targetId = btn.dataset.target;
+                        const row = document.getElementById(targetId);
+                        if (!row) return;
 
-                    const exchangeRate = 16253.62;
-                    document.querySelectorAll('tr.font-bold td:nth-child(2)').forEach(el => {
-                        el.textContent = 'Rp ' + total.toLocaleString('id-ID');
+                        row.classList.toggle('hidden');
+                        if (!row.classList.contains('hidden')) {
+                            btn.classList.add('bg-emerald-500', 'text-white');
+                        } else {
+                            btn.classList.remove('bg-emerald-500', 'text-white');
+                        }
                     });
-                    document.querySelectorAll('tr.font-bold td:nth-child(3)').forEach(el => {
-                        el.textContent = '$' + (total / exchangeRate).toFixed(2);
-                    });
-                }
+                });
 
-                // ✅ Tambah Fin Loss Detail (versi auto-refresh)
-                const addBtn = document.getElementById('addLossBtn');
-                if (addBtn) {
-                    addBtn.addEventListener('click', async function() {
-                        const itemInput = document.getElementById('newLossItem');
-                        const valueInput = document.getElementById('newLossValue');
-                        const item = itemInput.value.trim();
-                        const nilai = parseFloat(valueInput.value);
+                document.querySelectorAll('.add-recovery-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const detailId = btn.dataset.detail;
+                        const amountInput = document.querySelector(`.recovery-amount-input[data-detail="${detailId}"]`);
+                        const dateInput = document.querySelector(`.recovery-date-input[data-detail="${detailId}"]`);
+                        const notesInput = document.querySelector(`.recovery-notes-input[data-detail="${detailId}"]`);
 
-                        if (!item || isNaN(nilai) || nilai <= 0) {
-                            alert('Masukkan deskripsi dan nilai kerugian dengan benar.');
+                        if (!amountInput) return;
+
+                        const amount = parseFloat(amountInput.value || '0');
+                        if (!amount || amount <= 0) {
+                            alert('Masukkan jumlah recovery yang valid.');
                             return;
                         }
 
-                        // tampilkan status loading sementara
-                        addBtn.disabled = true;
-                        const oldText = addBtn.textContent;
-                        addBtn.textContent = 'Menyimpan...';
+                        btn.disabled = true;
+                        const originalText = btn.textContent;
+                        btn.textContent = 'Menyimpan...';
 
                         try {
-                            const res = await fetch(`/admin/findlossdetail/${findingId}`, {
+                            const res = await fetch(`/admin/findlossdetail/${detailId}/recovery`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
                                     'Accept': 'application/json',
                                     'X-CSRF-TOKEN': csrfToken
                                 },
-                                body: JSON.stringify({ item, nilai })
+                                body: JSON.stringify({
+                                    amount,
+                                    recorded_at: dateInput ? dateInput.value : null,
+                                    notes: notesInput ? notesInput.value : null,
+                                })
                             });
 
-                            if (res.ok) {
-                                // ✅ Berhasil insert → auto refresh halaman setelah sedikit delay
-                                setTimeout(() => {
-                                    location.reload();
-                                }, 600);
-                            } else {
-                                alert('Gagal menambah item: server tidak merespons dengan benar.');
-                                addBtn.disabled = false;
-                                addBtn.textContent = oldText;
+                            if (!res.ok) {
+                                const data = await res.json();
+                                throw new Error(data.error || 'Gagal menambah recovery');
                             }
+
+                            location.reload();
                         } catch (err) {
-                            console.error('❌ Error saat menyimpan item baru:', err);
-                            alert('Terjadi kesalahan saat menyimpan item baru.');
-                            addBtn.disabled = false;
-                            addBtn.textContent = oldText;
+                            alert(err.message || 'Terjadi kesalahan saat menyimpan.');
+                            btn.disabled = false;
+                            btn.textContent = originalText;
                         }
                     });
-                }
+                });
+
+                document.querySelectorAll('.delete-recovery').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        if (!confirm('Hapus data recovery ini?')) return;
+
+                        const id = btn.dataset.id;
+
+                        try {
+                            const res = await fetch(`/admin/findlossdetail/recovery/${id}`, {
+                                method: 'DELETE',
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-CSRF-TOKEN': csrfToken
+                                }
+                            });
+
+                            if (!res.ok) {
+                                const data = await res.json();
+                                throw new Error(data.error || 'Gagal menghapus recovery');
+                            }
+
+                            location.reload();
+                        } catch (err) {
+                            alert(err.message || 'Terjadi kesalahan saat menghapus.');
+                        }
+                    });
+                });
 
                 // ✅ Upload Attachment
                 const uploadBtn = document.getElementById('uploadBtn');
@@ -965,247 +1503,6 @@
             @endpush
 
 
-            <!-- Bagian Audit Items & Detail -->
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-
-                <!-- =========================
-                    🟣 KOLOM KIRI - AUDIT ITEMS
-                ========================== -->
-                <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-                    <!-- Header: Audit Items + Add Button -->
-                    <div class="flex justify-between items-center mb-5">
-                        <div class="flex items-center gap-3">
-                            <div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-600 dark:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
-                            </div>
-                            <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">Audit Items (<span id="item-count">{{ $finding->assessments->count() }}</span>)</h3>
-                        </div>
-                        <button id="openAddModal"
-                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium rounded-lg shadow transition flex items-center gap-1">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                            </svg>
-                            Add Item
-                        </button>
-                    </div>
-
-                    <!-- Daftar Items -->
-                    <div id="assessmentList" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 pb-2">
-                        @forelse($finding->assessments as $a)
-                            <div class="group p-4 bg-white dark:bg-gray-700/50 rounded-xl border-2 border-purple-200 dark:border-purple-800/50 hover:border-purple-300 dark:hover:border-purple-700 transition-all cursor-pointer">
-                                <div class="flex justify-between gap-3">
-                                    <div class="flex-1 min-w-0">
-                                        <h4 class="font-semibold text-gray-900 dark:text-gray-100 truncate">{{ $a->title }}</h4>
-                                        <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{{ $a->description }}</p>
-                                    </div>
-                                    <button class="delete-assessment flex-shrink-0 p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                        data-id="{{ $a->id }}" title="Hapus item">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </button>
-                                </div>
-                            </div>
-                        @empty
-                            <div class="text-center py-6">
-                                <p class="text-gray-500 dark:text-gray-400 italic">Belum ada item audit.</p>
-                            </div>
-                        @endforelse
-                    </div>
-
-                    <!-- Modal Add Assessment -->
-                    <div id="addModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-xl">
-                            <div class="flex justify-between items-center mb-4">
-                                <h3 class="text-lg font-bold text-gray-800 dark:text-gray-200">Add Assessment Item</h3>
-                                <button id="cancelAdd" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                            <div class="space-y-4">
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
-                                    <input id="assessmentTitle" type="text"
-                                        class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-                                    <textarea id="assessmentDescription" rows="3"
-                                        class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"></textarea>
-                                </div>
-                            </div>
-
-                            <div class="mt-6 flex justify-end gap-3">
-                                <button id="cancelAdd"
-                                    class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 rounded-lg font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-                                    Cancel
-                                </button>
-                                <button id="saveAdd"
-                                    class="px-4 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition">
-                                    Add Item
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-
-                <div id="detailPanel"
-                    class="lg:col-span-3 bg-gradient-to-br from-gray-50 to-white dark:from-gray-800 dark:to-gray-800 rounded-xl shadow-sm border border-gray-300 dark:border-gray-700 p-6 transition">
-
-                    <div class="flex justify-between items-start mb-6">
-                        <div>
-                            <h3 id="detailTitle" class="text-xl font-bold text-gray-800 dark:text-gray-200">Select an Item</h3>
-                            <p id="detailCode" class="text-gray-600 dark:text-gray-400">—</p>
-                        </div>
-                    </div>
-
-                    @php
-                        $isFinLossRecovery = $finding->kategori->name === 'Fin Loss' 
-                            && optional($finding->subkategori)->name === 'Recovery';
-                    @endphp
-
-                    <!-- Tabs -->
-                    <div class="border-b border-gray-300 dark:border-gray-600 mb-6">
-                        <nav class="flex space-x-6">
-                            <button class="sub-tab-btn pb-2 px-1 border-b-2 border-blue-500 text-blue-600 dark:text-blue-400 font-medium"
-                                data-tab="assessment">Assessment</button>
-                            @if($isFinLossRecovery)
-                                <button
-                                    class="sub-tab-btn pb-2 px-1 text-black dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 font-medium"
-                                    data-tab="recovery">Recovery</button>
-                            @endif
-                        </nav>
-                    </div>
-
-                    <!-- Content: Assessment -->
-                    <div id="tab-assessment" class="space-y-6">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Assessment Title</label>
-                            <input id="detailTitleInput" type="text"
-                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Control Description</label>
-                            <textarea id="detailDescriptionInput" rows="3"
-                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"></textarea>
-                        </div>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Assessment Result</label>
-                                <input id="detailTypeInput" type="text"
-                                    placeholder="E.g. Ineffective, 100%, etc."
-                                    class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Test Date</label>
-                                <input id="detailTestDate" type="date"
-                                    class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Testing Procedures Performed</label>
-                            <textarea id="detailTestingPerformed" rows="4"
-                                placeholder="Describe the testing procedures performed..."
-                                class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"></textarea>
-                        </div>
-                    </div>
-
-                    <!-- Content: Recovery -->
-                    @if($isFinLossRecovery)
-                        <div id="tab-recovery" class="hidden space-y-6">
-                            <!-- Form Tambah Recovery -->
-                            <div class="flex flex-col sm:flex-row sm:items-end gap-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-200 dark:border-gray-600">
-                                <div class="flex-1">
-                                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Recovery Name</label>
-                                    <input id="recoveryName" type="text"
-                                        class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100">
-                                </div>
-                                <div class="w-full sm:w-48">
-                                    <label class="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Nilai (Rp)</label>
-                                    <input id="recoveryValue" type="number" min="0" step="any"
-                                        class="w-full px-4 py-2.5 border border-black dark:border-gray-300 rounded-lg bg-white dark:bg-gray-700/50 text-gray-900 dark:text-gray-100">
-                                </div>
-                                <button id="addRecoveryBtn"
-                                    class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow transition flex items-center justify-center">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
-                                    Add Budget
-                                </button>
-                            </div>
-
-                            <!-- Tabel Recovery -->
-                            <div class="overflow-x-auto rounded-lg border border-gray-300 dark:border-gray-600">
-                                <table class="min-w-full text-sm">
-                                    <thead class="bg-gray-100 dark:bg-gray-700/80 text-gray-700 dark:text-gray-200">
-                                        <tr>
-                                            <th class="px-4 py-3 text-left border-b">Recovery Name</th>
-                                            <th class="px-4 py-3 text-right border-b">Nilai (Rp)</th>
-                                            <th class="px-4 py-3 text-right border-b">Nilai (USD)</th>
-                                            <th class="px-4 py-3 text-center border-b">Aksi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="recoveryTableBody" class="divide-y divide-gray-200 dark:divide-gray-700">
-                                        @php
-                                            $firstAssessment = $finding->assessments->first();
-                                            $initialRecoveries = $firstAssessment ? $firstAssessment->recoveries : collect();
-                                            $exchangeRate = 15000.00; // dari knowledge base Anda
-                                        @endphp
-
-                                        @if($initialRecoveries->count() > 0)
-                                            @foreach($initialRecoveries as $rec)
-                                                @php
-                                                    $nilaiRp = number_format($rec->nilai, 0, ',', '.');
-                                                    $nilaiUsd = number_format($rec->nilai / $exchangeRate, 2);
-                                                @endphp
-                                                <tr>
-                                                    <td class="px-4 py-3 text-gray-900 dark:text-gray-100">{{ $rec->item }}</td>
-                                                    <td class="px-4 py-3 text-right font-medium text-red-600 dark:text-red-400">Rp {{ $nilaiRp }}</td>
-                                                    <td class="px-4 py-3 text-right font-medium text-blue-600 dark:text-blue-400">USD {{ $nilaiUsd }}</td>
-                                                    <td class="px-4 py-3 text-center">
-                                                        <button class="delete-recovery text-red-500 hover:text-red-700 dark:hover:text-red-400" data-id="{{ $rec->id }}">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7h-3V5a2 2 0 00-2-2H10a2 2 0 00-2 2v2H5a1 1 0 000 2h1v11a2 2 0 002 2h10a2 2 0 002-2V9h1a1 1 0 100-2zM9 5h6v2H9V5z" />
-                                                            </svg>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                            <script>
-                                                document.getElementById('totalRp').textContent = 'Rp {{ number_format($initialRecoveries->sum('nilai'), 0, ',', '.') }}';
-                                                document.getElementById('totalUsd').textContent = 'USD {{ number_format($initialRecoveries->sum('nilai') / $exchangeRate, 2) }}';
-                                            </script>
-                                        @else
-                                            <tr>
-                                                <td colspan="4" class="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
-                                                    Pilih Assessment untuk melihat Recovery
-                                                </td>
-                                            </tr>
-                                        @endif
-                                    </tbody>
-                                    <tfoot class="bg-gray-100 dark:bg-gray-700/80 font-bold">
-                                        <tr>
-                                            <td class="px-4 py-3 text-left border-t">Total:</td>
-                                            <td id="totalRp" class="px-4 py-3 text-right text-red-600 dark:text-red-400 border-t">Rp 0</td>
-                                            <td id="totalUsd" class="px-4 py-3 text-right text-blue-600 dark:text-blue-400 border-t">USD 0.00</td>
-                                            <td class="border-t"></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                        </div>
-                    @endif
-                </div>
-            </div>
 
             <!-- =========================
                     ⚙️ SCRIPT

@@ -28,5 +28,84 @@
                 {{ $slot }}
             </div>
         </div>
+        <script>
+            window.auditVoice = (() => {
+                if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+                    return { speak: () => {} };
+                }
+
+                const synth = window.speechSynthesis;
+                let cachedVoice = null;
+                const femaleKeywords = ['female', 'woman', 'zira', 'aria', 'samantha', 'jenny', 'lisa', 'siti', 'ayu', 'lydia', 'luna', 'olivia', 'sofia', 'mia', 'hana', 'ayumi', 'eva'];
+
+                const isFemaleVoice = (voice) => {
+                    const name = (voice?.name ?? '').toLowerCase();
+                    const uri = (voice?.voiceURI ?? '').toLowerCase();
+                    return femaleKeywords.some(keyword => name.includes(keyword) || uri.includes(keyword));
+                };
+
+                const forceLoadVoices = () => {
+                    synth.getVoices();
+                };
+
+                const pickVoice = () => {
+                    if (cachedVoice) {
+                        return cachedVoice;
+                    }
+
+                    const voices = synth.getVoices();
+                    if (!voices.length) {
+                        return null;
+                    }
+
+                    cachedVoice = voices.find(isFemaleVoice) || null;
+
+                    return cachedVoice;
+                };
+
+                const speak = (text, { pitch = 1.1, rate = 1, onend } = {}) => {
+                    if (!text || !('speechSynthesis' in window)) {
+                        if (typeof onend === 'function') {
+                            onend();
+                        }
+                        return;
+                    }
+
+                    const attemptSpeak = (retry = 0) => {
+                        const voice = pickVoice();
+                        if (!voice) {
+                            if (retry < 10) {
+                                setTimeout(() => attemptSpeak(retry + 1), 200);
+                                forceLoadVoices();
+                            } else if (typeof onend === 'function') {
+                                onend();
+                            }
+                            return;
+                        }
+
+                        const utterance = new SpeechSynthesisUtterance(text);
+                        utterance.voice = voice;
+                        utterance.pitch = pitch;
+                        utterance.rate = rate;
+
+                        if (typeof onend === 'function') {
+                            utterance.onend = onend;
+                        }
+
+                        synth.cancel();
+                        synth.speak(utterance);
+                    };
+
+                    attemptSpeak();
+                };
+
+                synth.onvoiceschanged = () => {
+                    cachedVoice = null;
+                    pickVoice();
+                };
+
+                return { speak };
+            })();
+        </script>
     </body>
 </html>

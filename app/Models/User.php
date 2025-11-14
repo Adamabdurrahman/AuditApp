@@ -64,4 +64,9 @@ class User extends Authenticatable
         return $this->role->name === 'Admin';
     }
 
+    public function auditedForms()
+    {
+        return $this->hasMany(AuditForm::class, 'auditor');
+    }
+
 }

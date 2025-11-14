@@ -41,6 +41,62 @@
                     @csrf 
                     <div class="space-y-6">
 
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                            <div class="md:col-span-1">
+                                <label for="audit_plan_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Judul Laporan <span class="text-red-500">*</span>
+                                </label>
+                                <select
+                                    id="audit_plan_id"
+                                    name="audit_plan_id"
+                                    required
+                                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
+                                >
+                                    <option value="">Pilih judul laporan...</option>
+                                    @forelse(($auditPlans ?? collect())->sortKeysDesc() as $year => $plans)
+                                        <optgroup label="{{ $year }}">
+                                            @foreach($plans as $plan)
+                                                <option value="{{ $plan->id }}" @selected(old('audit_plan_id', $preselectedPlanId ?? null) == $plan->id)>
+                                                    {{ $plan->title }}
+                                                </option>
+                                            @endforeach
+                                        </optgroup>
+                                    @empty
+                                        <option value="" disabled>Belum ada judul laporan tersedia</option>
+                                    @endforelse
+                                </select>
+                                @error('audit_plan_id')
+                                    <p class="mt-1 text-sm text-red-500">{{ $message }}</p>
+                                @enderror
+                                @if(isset($auditPlans) && $auditPlans->isEmpty())
+                                    <p class="mt-2 text-xs text-yellow-600 dark:text-yellow-400">Buat judul laporan terlebih dahulu agar temuan dapat disimpan.</p>
+                                @endif
+                            </div>
+
+                            <div class="md:col-span-1">
+                                <div class="p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800">
+                                    <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">Belum ada judul laporan?</h4>
+                                    <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                                        Klik tombol di bawah untuk membuat judul laporan baru terlebih dahulu sebelum menambahkan temuan.
+                                    </p>
+                                    <a
+                                        href="{{ route('admin.plans.create') }}"
+                                        class="mt-3 inline-flex items-center px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow"
+                                    >
+                                        + Buat Judul Laporan
+                                    </a>
+                                    @if(!empty($preselectedPlan))
+                                        <div class="mt-3 text-xs text-gray-600 dark:text-gray-300">
+                                            Saat ini Anda menambahkan temuan untuk<br>
+                                            <span class="font-semibold text-gray-800 dark:text-gray-100">{{ $preselectedPlan->title }}</span>
+                                            <span class="text-gray-500 dark:text-gray-400">(Tahun {{ $preselectedPlan->year }})</span>.
+                                            Jika perlu ganti judul, ubah pilihan pada dropdown di samping.
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
+
                         <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Information Details</h3>
 
                         <div>
@@ -80,7 +136,7 @@
                                     name="auditor" 
                                     class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
                                     placeholder="Contoh: John Doe"
-                                    value="{{ auth()->user()->name }}" 
+                                    value="OFIN Internal Audit" 
                                     readonly
                                 >
                                 <input type="hidden" name="auditor" value="{{ auth()->id() }}">
@@ -97,28 +153,16 @@
                                 selectedCategory: 'Fin Loss',
                                 selectedPriority: 'High',
                                 subCategory: 'Recovery',
-                                items: [{ description: '', value: '' }],
-                                total: 0,
-                                exchangeRate: {{ $exchangeRate }},
-                                get totalUsd() {
-                                    return this.total > 0 
-                                        ? (this.total / this.exchangeRate).toFixed(2) 
-                                        : '0.00';
-                                },
-                                startDate: '', // ← Sekarang user yang isi
-                                findingDate: new Date().toISOString().split('T')[0], 
+                                items: [{ description: '', value: '', value_usd: '' }],
+                                totalIdr: 0,
+                                totalUsd: 0,
+                                startDate: '',
                                 dueDate: '',
-                                client: {
-                                    pt: '',
-                                    name: '',
-                                    email: ''
-                                },
-                                reminder: {
-                                    name: '',
-                                    email: ''
-                                },
+                                clientEmail: '{{ auth()->user()->email }}',
+                                reminderEmail: '{{ auth()->user()->email }}',
                                 calculateTotal() {
-                                    this.total = this.items.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
+                                    this.totalIdr = this.items.reduce((acc, item) => acc + (parseFloat(item.value) || 0), 0);
+                                    this.totalUsd = this.items.reduce((acc, item) => acc + (parseFloat(item.value_usd) || 0), 0);
                                 }
                             }"
                             x-init="calculateTotal()"
@@ -199,7 +243,7 @@
                                     <div class="space-y-4">
                                         <template x-for="(item, index) in items" :key="index">
                                             <div class="flex items-end space-x-3 border dark:border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                                                <div class="flex-grow grid grid-cols-3 gap-x-4">
+                                                <div class="flex-grow grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-3">
                                                     <div class="col-span-2">
                                                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Deskripsi kerugian (e.g., Pasir, Api)</label>
                                                         <input 
@@ -225,10 +269,25 @@
                                                             >
                                                         </div>
                                                     </div>
+                                                    <div class="col-span-1">
+                                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Nilai kerugian (USD)</label>
+                                                        <div class="relative mt-1">
+                                                            <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500 sm:text-sm">$</span>
+                                                            <input 
+                                                                x-model="item.value_usd" 
+                                                                @input="calculateTotal" 
+                                                                name="loss_value_usd[]" 
+                                                                type="number" 
+                                                                step="0.01"
+                                                                placeholder="Enter value"
+                                                                class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500 sm:text-sm pl-8"
+                                                            >
+                                                        </div>
+                                                    </div>
                                                 </div>
                                                 <button 
                                                     @click.prevent="items.splice(index, 1); calculateTotal()" 
-                                                    x-show="items.length > 1 || (items.length === 1 && (item.description || item.value))"
+                                                    x-show="items.length > 1 || (items.length === 1 && (item.description || item.value || item.value_usd))"
                                                     class="text-gray-400 hover:text-red-500 mb-1"
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -240,7 +299,7 @@
                                     </div>
 
                                     <button 
-                                        @click.prevent="items.push({ description: '', value: '' })" 
+                                        @click.prevent="items.push({ description: '', value: '', value_usd: '' })" 
                                         class="flex items-center space-x-2 text-sm font-medium text-green-600 hover:text-green-800"
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -251,11 +310,11 @@
 
                                     <div class="flex justify-between items-center text-sm text-gray-800 dark:text-gray-100 pt-3 border-t dark:border-gray-700">
                                         <span>Total Nilai Kerugian (IDR)</span>
-                                        <span class="ml-4 font-bold">Rp <span x-text="total.toLocaleString('id-ID')">0</span></span>
+                                        <span class="ml-4 font-bold">Rp <span x-text="totalIdr.toLocaleString('id-ID')">0</span></span>
                                     </div>
                                     <div class="flex justify-between items-center text-sm text-gray-800 dark:text-gray-100 pt-2">
                                         <span>Total Nilai Kerugian (USD)</span>
-                                        <span class="ml-4 font-bold"> $ <span x-text="totalUsd">0.00</span></span>
+                                        <span class="ml-4 font-bold"> $ <span x-text="Number(totalUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })">0.00</span></span>
                                     </div>
                                 </div>
                             </div>
@@ -265,21 +324,7 @@
                             <div class="pt-6 border-t dark:border-gray-700">
                                 <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Timeline</h3>
 
-                                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                    <!-- Tanggal Temuan (Otomatis = Hari Ini) -->
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                            Tanggal Temuan
-                                        </label>
-                                        <input 
-                                            type="text" 
-                                            :value="findingDate"
-                                            readonly
-                                            class="mt-1 block w-full rounded-md bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 shadow-sm cursor-not-allowed"
-                                        >
-                                        <input type="hidden" name="finding_date" :value="findingDate">
-                                    </div>
-
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <!-- Start Date (Manual) -->
                                     <div>
                                         <label for="start_date_input" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -314,99 +359,47 @@
           
                             <!-- Pihak Ketiga / Reminder Section -->
                             <div class="pt-6 border-t dark:border-gray-700">
-                                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Pihak Auditee</h3>
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Pihak Auditor</h3>
 
                                 <!-- Client Section (hanya jika Fin Loss) -->
-                                <div 
-                                    x-show="selectedCategory === 'Fin Loss'"
-                                    x-transition
+                                <div
                                     class="space-y-4"
                                 >
-                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                        <div>
-                                            <label for="client_pt" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                PT <span class="text-red-500">*</span>
-                                            </label>
-                                            <input 
-                                                type="text" 
-                                                id="client_pt" 
-                                                name="client_pt"
-                                                x-model="client.pt"
-                                                :required="selectedCategory === 'Fin Loss'"
-                                                class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
-                                                placeholder="Contoh: PT ABC Indonesia"
-                                            >
-                                            {{-- <input type="hidden" name="client_pt" :value="client.pt"> --}}
-                                        </div>
-                                        <div>
-                                            <label for="client_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                Nama <span class="text-red-500">*</span>
-                                            </label>
-                                            <input 
-                                                type="text" 
-                                                id="client_name" 
-                                                name="client_name"
-                                                x-model="client.name"
-                                                :required="selectedCategory === 'Fin Loss'"
-                                                class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
-                                                placeholder="Contoh: Budi Santoso"
-                                            >
-                                            {{-- <input type="hidden" name="client_name" :value="client.name"> --}}
-                                        </div>
-                                        <div>
+                                    <div class="grid grid-cols-1 md:grid-cols-1 gap-6">
+                                        <div x-show="selectedCategory === 'Fin Loss'" x-transition>
                                             <label for="client_email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                Email <span class="text-red-500">*</span>
+                                                Email Auditor <span class="text-red-500">*</span>
                                             </label>
-                                            <input 
-                                                type="email" 
-                                                id="client_email" 
+                                            <input
+                                                type="text"
+                                                id="client_email"
                                                 name="client_email"
-                                                x-model="client.email"
-                                                :required="selectedCategory === 'Fin Loss'"
+                                                x-model="clientEmail"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
-                                                placeholder="budi@abc.com"
+                                                placeholder="audit1@example.com, audit2@example.com"
                                             >
-                                            {{-- <input type="hidden" name="client_email" :value="client.email"> --}}
+                                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                                Pisahkan alamat dengan koma. Email tambahan otomatis: 
+                                                <span class="font-medium text-gray-700 dark:text-gray-200">{{ ($extraMailRecipients ?? collect())->implode(', ') ?: '-' }}</span>
+                                            </p>
                                         </div>
-                                    </div>
-                                </div>
 
-                                <!-- Reminder Section (jika bukan Fin Loss) -->
-                                <div 
-                                    x-show="selectedCategory !== 'Fin Loss'"
-                                    x-transition
-                                    class="space-y-4"
-                                >
-                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div>
-                                            <label for="reminder_name" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                Nama <span class="text-red-500">*</span>
-                                            </label>
-                                            <input 
-                                                type="text" 
-                                                id="reminder_name" 
-                                                name="reminder_name"
-                                                x-model="reminder.name"
-                                                :required="selectedCategory !== 'Fin Loss'"
-                                                class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
-                                                placeholder="Contoh: Andi Pratama"
-                                            >
-                                            {{-- <input type="hidden" name="reminder_name" :value="reminder.name"> --}}
-                                        </div>
-                                        <div>
+                                        <div x-show="selectedCategory !== 'Fin Loss'" x-transition>
                                             <label for="reminder_email" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                                                Email <span class="text-red-500">*</span>
+                                                Email Auditor <span class="text-red-500">*</span>
                                             </label>
-                                            <input 
-                                                type="email" 
-                                                id="reminder_email" 
+                                            <input
+                                                type="text"
+                                                id="reminder_email"
                                                 name="reminder_email"
-                                                x-model="reminder.email"
-                                                :required="selectedCategory !== 'Fin Loss'"
+                                                x-model="reminderEmail"
                                                 class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500"
-                                                placeholder="andi@perusahaan.com"
+                                                placeholder="audit1@example.com, audit2@example.com"
                                             >
-                                            {{-- <input type="hidden" name="reminder_email" :value="reminder.email"> --}}
+                                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                                Pisahkan alamat dengan koma. Email tambahan otomatis: 
+                                                <span class="font-medium text-gray-700 dark:text-gray-200">{{ ($extraMailRecipients ?? collect())->implode(', ') ?: '-' }}</span>
+                                            </p>
                                         </div>
                                     </div>
                                 </div>
@@ -421,7 +414,7 @@
                                 <textarea id="internal_notes" name="internal_notes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500" placeholder="Add internal notes for the audit team..."></textarea>
                             </div>
                             <div>
-                                <label for="auditee_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Active Respond</label>
+                                <label for="auditee_notes" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Auditee Response</label>
                                 <textarea id="auditee_notes" name="auditee_notes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 shadow-sm focus:border-green-500 focus:ring-green-500" placeholder="Initial message or context for the auditee..."></textarea>
                             </div>
                         </div>

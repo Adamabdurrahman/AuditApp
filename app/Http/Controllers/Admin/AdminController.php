@@ -13,12 +13,18 @@ use Illuminate\Http\Request;
 use App\Models\Fileattachment;
 use App\Models\Findlossdetail;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
+use Illuminate\Database\Eloquent\Builder;
 use App\Models\NotificationType;
+use App\Models\AuditPlan;
+use App\Models\FindlossRecovery;
 use App\Mail\AuditNotificationMail;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use App\Models\User;
@@ -27,100 +33,865 @@ use App\Models\User;
 class AdminController extends Controller
 {
         // Fungsi untuk menampilkan dasbor admin
-    public function dashboard()
+    public function dashboard(Request $request)
     {
-        // 🔹 Total Findings (semua data di tabel AuditForm)
-        $totalFindings = \App\Models\AuditForm::count();
+        $planFindingStats = AuditPlan::query()
+            ->withCount(['findings as findings_with_plan_count' => function ($query) {
+                $query->whereNotNull('audit_plan_id');
+            }])
+            ->get();
 
-        // 🔹 Outstanding Findings (yang belum Closed)
-        $outstandingFindings = \App\Models\AuditForm::whereHas('status', function($q) {
-            $q->where('status', '!=', 'Closed');
-        })->count();
+        $engagedPlanIds = $planFindingStats
+            ->where('findings_with_plan_count', '>', 0)
+            ->pluck('id');
 
-        // 🔹 Auditee (jumlah distinct reminder + user dengan role_id = 3)
-        $auditeeCount = \App\Models\Reminder::whereNotNull('email')->distinct('email')->count('email')
-                        + \App\Models\User::where('role_id', 3)->count();
+        $totalPertemuan = $planFindingStats->sum('findings_with_plan_count');
 
-        // 🔹 Team Member (Admin + SuperAdmin)
-        $teamMemberCount = \App\Models\User::whereIn('role_id', [1, 2])->count();
+        $totalEngagement = $engagedPlanIds->count();
 
-        // Kirim ke view
-        return view('admin.dashboard', compact(
-            'totalFindings',
-            'outstandingFindings',
-            'auditeeCount',
-            'teamMemberCount'
-        ));
+        $planIdFilter = $engagedPlanIds->isEmpty() ? [-1] : $engagedPlanIds->all();
+
+        $auditFormsWithPlan = AuditForm::query()
+            ->whereIn('audit_plan_id', $planIdFilter)
+            ->whereHas('auditPlan');
+
+        $auditeeCount = Reminder::whereNotNull('email')
+            ->whereHas('auditForms', function ($query) use ($planIdFilter) {
+                $query->whereIn('audit_plan_id', $planIdFilter)
+                    ->whereHas('auditPlan');
+            })
+            ->distinct('email')
+            ->count('email');
+
+        $teamMemberCount = User::whereIn('role_id', [1, 2])
+            ->whereHas('auditedForms', function ($query) use ($planIdFilter) {
+                $query->whereIn('audit_plan_id', $planIdFilter)
+                    ->whereHas('auditPlan');
+            })
+            ->distinct()
+            ->count('id');
+
+        $availableYears = AuditPlan::query()
+            ->whereNotNull('year')
+            ->pluck('year')
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->values();
+
+        $finLossBaseQuery = AuditForm::query()
+            ->whereIn('audit_plan_id', $planIdFilter)
+            ->whereHas('auditPlan')
+            ->whereHas('kategori', fn ($q) => $q->where('name', 'Fin Loss'))
+            ->whereHas('subkategori', fn ($q) => $q->where('name', 'Recovery'));
+
+        $finLossYears = $finLossBaseQuery->get()
+            ->map(function ($form) {
+                $date = $form->tanggal_temuan ?? $form->start_date ?? $form->created_at;
+                if (!$date) {
+                    return null;
+                }
+
+                try {
+                    return Carbon::parse($date)->year;
+                } catch (\Throwable $e) {
+                    return null;
+                }
+            })
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->values();
+
+        $filterYears = $availableYears->concat($finLossYears)->unique()->sortDesc()->values();
+        if ($filterYears->isEmpty()) {
+            $filterYears = collect([now()->year]);
+        }
+
+        $selectedYear = (int) ($request->input('year') ?: $filterYears->first());
+        if (!$filterYears->contains($selectedYear)) {
+            $selectedYear = (int) $filterYears->first();
+        }
+
+        $startDateInput = $request->input('start_date');
+        $endDateInput = $request->input('end_date');
+
+        $startDate = null;
+        $endDate = null;
+
+        if ($startDateInput) {
+            try {
+                $startDate = Carbon::parse($startDateInput)->startOfDay();
+            } catch (\Throwable $e) {
+                $startDate = null;
+            }
+        }
+
+        if ($endDateInput) {
+            try {
+                $endDate = Carbon::parse($endDateInput)->endOfDay();
+            } catch (\Throwable $e) {
+                $endDate = null;
+            }
+        }
+
+        if ($startDate && $endDate && $startDate->greaterThan($endDate)) {
+            [$startDate, $endDate] = [$endDate->copy()->startOfDay(), $startDate->copy()->endOfDay()];
+        }
+
+        $applyDateRange = function ($query) use ($startDate, $endDate) {
+            if ($startDate) {
+                $query->where(function ($fallback) use ($startDate) {
+                    $fallback->whereNotNull('tanggal_temuan')
+                        ->whereDate('tanggal_temuan', '>=', $startDate)
+                        ->orWhere(function ($alt) use ($startDate) {
+                            $alt->whereNull('tanggal_temuan')
+                                ->whereNotNull('start_date')
+                                ->whereDate('start_date', '>=', $startDate);
+                        });
+                });
+            }
+
+            if ($endDate) {
+                $query->where(function ($fallback) use ($endDate) {
+                    $fallback->whereNotNull('tanggal_temuan')
+                        ->whereDate('tanggal_temuan', '<=', $endDate)
+                        ->orWhere(function ($alt) use ($endDate) {
+                            $alt->whereNull('tanggal_temuan')
+                                ->whereNotNull('start_date')
+                                ->whereDate('start_date', '<=', $endDate);
+                        });
+                });
+            }
+        };
+
+        $plans = AuditPlan::query()
+            ->withCount(['findings as findings_count' => function ($query) use ($applyDateRange) {
+                $applyDateRange($query);
+            }])
+            ->when($selectedYear, fn ($query) => $query->where('year', $selectedYear))
+            ->orderBy('title')
+            ->get();
+
+        $chartData = [
+            'labels' => $plans->pluck('title')->values()->all(),
+            'values' => $plans->pluck('findings_count')->values()->all(),
+            'years' => $filterYears,
+        ];
+
+        $statusCountsRaw = (clone $auditFormsWithPlan)
+            ->select('status_id', DB::raw('COUNT(*) as total'))
+            ->whereNotNull('status_id')
+            ->when($selectedYear, function ($query) use ($selectedYear) {
+                $query->where(function ($inner) use ($selectedYear) {
+                    $inner->whereYear('tanggal_temuan', $selectedYear)
+                        ->orWhere(function ($fallback) use ($selectedYear) {
+                            $fallback->whereNull('tanggal_temuan')
+                                ->whereYear('start_date', $selectedYear);
+                        });
+                });
+            })
+            ->when($startDate || $endDate, function ($query) use ($applyDateRange) {
+                $applyDateRange($query);
+            })
+            ->groupBy('status_id')
+            ->get();
+
+        $statusNames = Status::whereIn('id', $statusCountsRaw->pluck('status_id')->filter())
+            ->pluck('status', 'id');
+
+        $statusOrder = ['Open', 'Closed', 'Overdue'];
+
+        $statusCounts = $statusCountsRaw->mapWithKeys(function ($row) use ($statusNames) {
+            $name = $statusNames[$row->status_id] ?? null;
+            if (!$name) {
+                return [];
+            }
+
+            return [$name => (int) $row->total];
+        });
+
+        $statusLabels = [];
+        $statusValues = [];
+
+        foreach ($statusOrder as $statusName) {
+            if (isset($statusCounts[$statusName])) {
+                $statusLabels[] = $statusName;
+                $statusValues[] = $statusCounts[$statusName];
+            }
+        }
+
+        foreach ($statusCounts as $name => $value) {
+            if (!in_array($name, $statusOrder, true)) {
+                $statusLabels[] = $name;
+                $statusValues[] = $value;
+            }
+        }
+
+        $totalStatusCount = array_sum($statusValues);
+        $statusSummary = [];
+
+        if ($totalStatusCount > 0) {
+            foreach ($statusLabels as $index => $label) {
+                $value = $statusValues[$index] ?? 0;
+                $percentage = $totalStatusCount > 0 ? round(($value / $totalStatusCount) * 100, 1) : 0;
+
+                $statusSummary[] = [
+                    'label' => $label,
+                    'value' => $value,
+                    'percentage' => $percentage,
+                ];
+            }
+        }
+
+        $statusPieData = [
+            'labels' => $statusLabels,
+            'values' => $statusValues,
+        ];
+
+        $resolveDate = function (...$candidates) {
+            foreach ($candidates as $candidate) {
+                if ($candidate instanceof Carbon) {
+                    return $candidate->copy();
+                }
+
+                if ($candidate) {
+                    try {
+                        return Carbon::parse($candidate);
+                    } catch (\Throwable $e) {
+                        continue;
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        $forms = $finLossBaseQuery
+            ->with(['findlossdetails.recoveries', 'priority'])
+            ->get();
+
+        $sequences = collect();
+
+        foreach ($forms as $form) {
+            foreach ($form->findlossdetails as $detail) {
+                $agreedDate = $resolveDate(
+                    $form->tanggal_temuan,
+                    $form->start_date,
+                    $form->created_at
+                );
+
+                $agreedAmountIdr = (float) ($detail->nilai ?? 0);
+                $agreedAmountUsd = (float) ($detail->nilai_usd ?? 0);
+
+                if (!$agreedDate || ($agreedAmountIdr <= 0 && $agreedAmountUsd <= 0)) {
+                    continue;
+                }
+
+                $sequence = collect();
+
+                $sequence->push([
+                    'type' => 'agreed',
+                    'date' => $agreedDate,
+                    'amount_idr' => $agreedAmountIdr,
+                    'amount_usd' => $agreedAmountUsd,
+                    'label' => $agreedDate->format('d M Y') . ' • Temuan: ' . ($detail->item ?? 'Tanpa item'),
+                ]);
+
+                $detail->recoveries
+                    ->sortBy(fn ($recovery) => $resolveDate($recovery->recorded_at, $recovery->created_at, $form->created_at))
+                    ->each(function ($recovery) use ($sequence, $resolveDate, $form, $detail) {
+                        $recoveryDate = $resolveDate(
+                            $recovery->recorded_at,
+                            $recovery->created_at,
+                            $form->created_at
+                        );
+
+                        $amountIdr = (float) ($recovery->amount ?? 0);
+                        $amountUsd = (float) ($recovery->amount_usd ?? 0);
+
+                        if ($recoveryDate && ($amountIdr > 0 || $amountUsd > 0)) {
+                            $sequence->push([
+                                'type' => 'paid',
+                                'date' => $recoveryDate,
+                                'amount_idr' => $amountIdr,
+                                'amount_usd' => $amountUsd,
+                                'label' => $recoveryDate->format('d M Y') . ' • Recovery: ' . ($recovery->notes ?: ($detail->item ?? 'Tanpa item')),
+                            ]);
+                        }
+                    });
+
+                $sequences->push($sequence);
+            }
+        }
+
+        $events = $sequences
+            ->flatMap(fn ($sequence) => $sequence
+                ->sortBy(fn ($event) => $event['date']->timestamp)
+                ->values()
+            )
+            ->filter(fn ($event) => $event['date'] instanceof Carbon && ((float) $event['amount_idr'] > 0 || (float) $event['amount_usd'] > 0))
+            ->values();
+
+        $eventDates = $events->pluck('date')
+            ->filter(fn ($date) => $date instanceof Carbon)
+            ->sortBy(fn ($date) => $date->timestamp)
+            ->values();
+
+        $currentAgreedIdr = 0.0;
+        $currentPaidIdr = 0.0;
+        $currentAgreedUsd = 0.0;
+        $currentPaidUsd = 0.0;
+
+        $runningOutstandingIdr = 0.0;
+        $runningOutstandingUsd = 0.0;
+
+        $labels = [];
+        $agreedSeriesIdr = [];
+        $paidSeriesIdr = [];
+        $remainingSeriesIdr = [];
+        $agreedSeriesUsd = [];
+        $paidSeriesUsd = [];
+        $remainingSeriesUsd = [];
+
+        $chartStart = $startDate;
+        $chartEnd = $endDate;
+
+        if ($events->isNotEmpty()) {
+            $firstEventDate = $eventDates->first();
+            $lastEventDate = $eventDates->last();
+
+            if (!$chartStart || $chartStart->greaterThan($firstEventDate)) {
+                $chartStart = $firstEventDate->copy();
+            }
+
+            if (!$chartEnd || $chartEnd->lessThan($lastEventDate)) {
+                $chartEnd = $lastEventDate->copy();
+            }
+
+            foreach ($events as $event) {
+                $amountIdr = (float) ($event['amount_idr'] ?? 0);
+                $amountUsd = (float) ($event['amount_usd'] ?? 0);
+
+                if ($chartStart && $event['date']->lt($chartStart)) {
+                    if ($event['type'] === 'agreed') {
+                        $currentAgreedIdr += $amountIdr;
+                        $currentAgreedUsd += $amountUsd;
+                        $runningOutstandingIdr += $amountIdr;
+                        $runningOutstandingUsd += $amountUsd;
+                    } else {
+                        $currentPaidIdr += $amountIdr;
+                        $currentPaidUsd += $amountUsd;
+                        $runningOutstandingIdr = max($runningOutstandingIdr - $amountIdr, 0);
+                        $runningOutstandingUsd = max($runningOutstandingUsd - $amountUsd, 0);
+                    }
+
+                    continue;
+                }
+
+                if ($chartEnd && $event['date']->greaterThan($chartEnd)) {
+                    break;
+                }
+
+                $agreedValueIdr = 0.0;
+                $paidValueIdr = 0.0;
+                $agreedValueUsd = 0.0;
+                $paidValueUsd = 0.0;
+                $remainingValueIdr = 0.0;
+                $remainingValueUsd = 0.0;
+
+                if ($event['type'] === 'agreed') {
+                    $currentAgreedIdr += $amountIdr;
+                    $currentAgreedUsd += $amountUsd;
+
+                    $agreedValueIdr = round($amountIdr, 2);
+                    $agreedValueUsd = round($amountUsd, 2);
+
+                    $runningOutstandingIdr += $amountIdr;
+                    $runningOutstandingUsd += $amountUsd;
+                } else {
+                    $currentPaidIdr += $amountIdr;
+                    $currentPaidUsd += $amountUsd;
+
+                    $paidValueIdr = round($amountIdr, 2);
+                    $paidValueUsd = round($amountUsd, 2);
+
+                    $runningOutstandingIdr = max($runningOutstandingIdr - $amountIdr, 0);
+                    $runningOutstandingUsd = max($runningOutstandingUsd - $amountUsd, 0);
+                }
+
+                $remainingValueIdr = round($runningOutstandingIdr, 2);
+                $remainingValueUsd = round($runningOutstandingUsd, 2);
+
+                $label = $event['label'] ?? $event['date']->format('d M Y');
+                $labels[] = $label;
+                $agreedSeriesIdr[] = $agreedValueIdr;
+                $paidSeriesIdr[] = $paidValueIdr;
+                $remainingSeriesIdr[] = $remainingValueIdr;
+                $agreedSeriesUsd[] = $agreedValueUsd;
+                $paidSeriesUsd[] = $paidValueUsd;
+                $remainingSeriesUsd[] = $remainingValueUsd;
+            }
+        }
+
+        $finLossChart = [
+            'labels' => $labels,
+            'idr' => [
+                'agreed' => $agreedSeriesIdr,
+                'paid' => $paidSeriesIdr,
+                'remaining' => $remainingSeriesIdr,
+            ],
+            'usd' => [
+                'agreed' => $agreedSeriesUsd,
+                'paid' => $paidSeriesUsd,
+                'remaining' => $remainingSeriesUsd,
+            ],
+        ];
+
+        $currentRemainingIdr = max($currentAgreedIdr - $currentPaidIdr, 0);
+        $currentRemainingUsd = max($currentAgreedUsd - $currentPaidUsd, 0);
+
+        $finLossSummary = [
+            'total_agreed_idr' => $currentAgreedIdr,
+            'total_paid_idr' => $currentPaidIdr,
+            'total_remaining_idr' => $currentRemainingIdr,
+            'total_agreed_usd' => $currentAgreedUsd,
+            'total_paid_usd' => $currentPaidUsd,
+            'total_remaining_usd' => $currentRemainingUsd,
+        ];
+
+        $perItemRawEntries = collect();
+        $perItemYears = collect();
+        $perItemItems = collect();
+
+        foreach ($forms as $form) {
+            $formDate = $resolveDate(
+                $form->tanggal_temuan,
+                $form->start_date,
+                $form->created_at
+            );
+
+            $formYear = $formDate ? $formDate->year : null;
+
+            if ($formYear) {
+                $perItemYears->push($formYear);
+            }
+
+            foreach ($form->findlossdetails as $detail) {
+                $itemName = trim($detail->item ?? '') ?: 'Tanpa Item';
+                $perItemItems->push($itemName);
+
+                $perItemRawEntries->push([
+                    'item' => $itemName,
+                    'year' => $formYear,
+                    'agreed_idr' => (float) ($detail->nilai ?? 0),
+                    'agreed_usd' => (float) ($detail->nilai_usd ?? 0),
+                    'recovery_idr' => (float) $detail->recoveries->sum('amount'),
+                    'recovery_usd' => (float) $detail->recoveries->sum('amount_usd'),
+                ]);
+            }
+        }
+
+        $perItemYearOptions = $perItemYears->filter()->unique()->sortDesc()->values();
+        $perItemItemOptions = $perItemItems->filter()->unique()->sort()->values();
+
+        $perItemSelectedYear = $request->input('per_item_year');
+        $perItemSelectedYear = $perItemSelectedYear !== null && $perItemSelectedYear !== ''
+            ? (int) $perItemSelectedYear
+            : null;
+
+        if ($perItemSelectedYear !== null && $perItemYearOptions->isNotEmpty() && !$perItemYearOptions->contains($perItemSelectedYear)) {
+            $perItemSelectedYear = (int) $perItemYearOptions->first();
+        }
+
+        $perItemSelectedItem = $request->input('per_item_category');
+        if ($perItemSelectedItem === null || $perItemSelectedItem === '') {
+            $perItemSelectedItem = null;
+        } elseif ($perItemItemOptions->isNotEmpty() && !$perItemItemOptions->contains($perItemSelectedItem)) {
+            $perItemSelectedItem = null;
+        }
+
+        $perItemAggregated = [];
+
+        foreach ($perItemRawEntries as $entry) {
+            if ($perItemSelectedYear !== null && $entry['year'] !== $perItemSelectedYear) {
+                continue;
+            }
+
+            if ($perItemSelectedItem !== null && $entry['item'] !== $perItemSelectedItem) {
+                continue;
+            }
+
+            $key = $entry['item'];
+
+            if (!isset($perItemAggregated[$key])) {
+                $perItemAggregated[$key] = [
+                    'agreed_idr' => 0.0,
+                    'agreed_usd' => 0.0,
+                    'recovery_idr' => 0.0,
+                    'recovery_usd' => 0.0,
+                ];
+            }
+
+            $perItemAggregated[$key]['agreed_idr'] += $entry['agreed_idr'];
+            $perItemAggregated[$key]['agreed_usd'] += $entry['agreed_usd'];
+            $perItemAggregated[$key]['recovery_idr'] += $entry['recovery_idr'];
+            $perItemAggregated[$key]['recovery_usd'] += $entry['recovery_usd'];
+        }
+
+        ksort($perItemAggregated);
+
+        $perItemLabels = array_keys($perItemAggregated);
+        $perItemAgreedIdr = [];
+        $perItemRecoveryIdr = [];
+        $perItemRemainingIdr = [];
+        $perItemAgreedUsd = [];
+        $perItemRecoveryUsd = [];
+        $perItemRemainingUsd = [];
+
+        foreach ($perItemAggregated as $itemName => $values) {
+            $agreedIdr = round($values['agreed_idr'], 2);
+            $recoveryIdr = round($values['recovery_idr'], 2);
+            $remainingIdr = max($agreedIdr - $recoveryIdr, 0);
+
+            $agreedUsd = round($values['agreed_usd'], 2);
+            $recoveryUsd = round($values['recovery_usd'], 2);
+            $remainingUsd = max($agreedUsd - $recoveryUsd, 0);
+
+            $perItemAgreedIdr[] = $agreedIdr;
+            $perItemRecoveryIdr[] = $recoveryIdr;
+            $perItemRemainingIdr[] = $remainingIdr;
+
+            $perItemAgreedUsd[] = $agreedUsd;
+            $perItemRecoveryUsd[] = $recoveryUsd;
+            $perItemRemainingUsd[] = $remainingUsd;
+        }
+
+        $perItemTotals = [
+            'idr' => [
+                'agreed' => array_sum($perItemAgreedIdr),
+                'recovery' => array_sum($perItemRecoveryIdr),
+                'remaining' => array_sum($perItemRemainingIdr),
+            ],
+            'usd' => [
+                'agreed' => array_sum($perItemAgreedUsd),
+                'recovery' => array_sum($perItemRecoveryUsd),
+                'remaining' => array_sum($perItemRemainingUsd),
+            ],
+        ];
+
+        $perItemChart = [
+            'labels' => $perItemLabels,
+            'series' => [
+                'idr' => [
+                    'temuan' => $perItemAgreedIdr,
+                    'recovery' => $perItemRecoveryIdr,
+                    'remaining' => $perItemRemainingIdr,
+                ],
+                'usd' => [
+                    'temuan' => $perItemAgreedUsd,
+                    'recovery' => $perItemRecoveryUsd,
+                    'remaining' => $perItemRemainingUsd,
+                ],
+            ],
+            'totals' => $perItemTotals,
+        ];
+
+        $monthPriorityCounts = [];
+        $priorityOrder = ['High', 'Medium', 'Low'];
+
+        foreach ($forms as $form) {
+            $referenceDate = $resolveDate(
+                $form->tanggal_temuan,
+                $form->start_date,
+                $form->created_at
+            );
+
+            if (!$referenceDate) {
+                continue;
+            }
+
+            if ($startDate && $referenceDate->lt($startDate)) {
+                continue;
+            }
+
+            if ($endDate && $referenceDate->gt($endDate)) {
+                continue;
+            }
+
+            if ($selectedYear && !$startDate && !$endDate && (int) $referenceDate->year !== (int) $selectedYear) {
+                continue;
+            }
+
+            $monthKey = $referenceDate->format('Y-m');
+            $priorityName = optional($form->priority)->name;
+            $normalizedPriority = match (strtolower((string) $priorityName)) {
+                'high' => 'High',
+                'medium' => 'Medium',
+                'low' => 'Low',
+                default => $priorityName ? ucfirst(strtolower($priorityName)) : 'Unspecified',
+            };
+
+            if (!isset($monthPriorityCounts[$monthKey])) {
+                $monthPriorityCounts[$monthKey] = [];
+            }
+
+            if (!isset($monthPriorityCounts[$monthKey][$normalizedPriority])) {
+                $monthPriorityCounts[$monthKey][$normalizedPriority] = 0;
+            }
+
+            $monthPriorityCounts[$monthKey][$normalizedPriority]++;
+        }
+
+        ksort($monthPriorityCounts);
+
+        $detectedPriorities = collect($monthPriorityCounts)
+            ->flatMap(fn ($counts) => array_keys($counts))
+            ->unique()
+            ->values();
+
+        $orderedPriorities = collect($priorityOrder)
+            ->filter(fn ($name) => $detectedPriorities->contains($name))
+            ->merge(
+                $detectedPriorities->reject(fn ($name) => in_array($name, $priorityOrder, true))
+            )
+            ->values();
+
+        $compositionLabels = [];
+        $compositionSeries = [];
+
+        foreach ($orderedPriorities as $priorityName) {
+            $compositionSeries[$priorityName] = [];
+        }
+
+        foreach ($monthPriorityCounts as $monthKey => $counts) {
+            try {
+                $label = Carbon::createFromFormat('Y-m', $monthKey)->format('M Y');
+            } catch (\Throwable $e) {
+                $label = $monthKey;
+            }
+
+            $compositionLabels[] = $label;
+
+            foreach ($orderedPriorities as $priorityName) {
+                $compositionSeries[$priorityName][] = (int) ($counts[$priorityName] ?? 0);
+            }
+        }
+
+        $finLossComposition = [
+            'labels' => $compositionLabels,
+            'series' => $compositionSeries,
+        ];
+
+        return view('admin.dashboard', [
+            'totalPertemuan' => $totalPertemuan,
+            'totalEngagement' => $totalEngagement,
+            'auditeeCount' => $auditeeCount,
+            'teamMemberCount' => $teamMemberCount,
+            'selectedYear' => $selectedYear,
+            'chartData' => $chartData,
+            'finLossChart' => $finLossChart,
+            'finLossSummary' => $finLossSummary,
+            'finLossComposition' => $finLossComposition,
+            'startDate' => $startDateInput,
+            'endDate' => $endDateInput,
+            'statusPieData' => $statusPieData,
+            'statusSummary' => $statusSummary,
+            'perItemChart' => $perItemChart,
+            'perItemTotals' => $perItemTotals,
+            'perItemYearOptions' => $perItemYearOptions->values()->all(),
+            'perItemItemOptions' => $perItemItemOptions->values()->all(),
+            'perItemSelectedYear' => $perItemSelectedYear,
+            'perItemSelectedItem' => $perItemSelectedItem,
+        ]);
     }
 
     // Fungsi untuk menampilkan halaman Findings
     public function findings(Request $request)
     {
-        $exchangeRate = 15000;
-        try {
-            $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
-            if ($response->successful()) {
-                $exchangeRate = $response->json('rates.IDR');
+        $filters = $request->only(['year', 'search']);
+
+        $years = AuditPlan::query()
+            ->whereNotNull('year')
+            ->distinct()
+            ->orderByDesc('year')
+            ->pluck('year');
+
+        $plansQuery = AuditPlan::query()
+            ->withCount('findings')
+            ->withCount(['findings as filtered_findings_count' => function ($query) use ($filters) {
+                $this->applyFindingFilters($query, $filters);
+            }]);
+
+        if (!empty($filters['year'])) {
+            $plansQuery->where('year', $filters['year']);
+        }
+
+        if (!empty($filters['search'])) {
+            $plansQuery->where('title', 'like', '%' . $filters['search'] . '%');
+        }
+
+        if ($this->hasFindingFilters($filters)) {
+            $plansQuery->whereHas('findings', function ($query) use ($filters) {
+                $this->applyFindingFilters($query, $filters);
+            });
+        }
+
+        $plans = $plansQuery
+            ->orderByDesc('year')
+            ->orderBy('title')
+            ->get();
+
+        $hasFindingFilters = $this->hasFindingFilters($filters);
+
+        // Kumpulkan data FinLoss untuk kebutuhan grafik
+        $finLossFormsQuery = AuditForm::query()
+            ->with(['kategori', 'findlossdetails.recoveries'])
+            ->whereHas('kategori', function ($query) {
+                $query->where('name', 'Fin Loss');
+            });
+
+        if (!empty($filters['year'])) {
+            $finLossFormsQuery->whereHas('auditPlan', function ($query) use ($filters) {
+                $query->where('year', $filters['year']);
+            });
+        }
+
+        if (!empty($filters['search'])) {
+            $finLossFormsQuery->where('judul_temuan', 'like', '%' . $filters['search'] . '%');
+        }
+
+        $finLossForms = $finLossFormsQuery->get();
+
+        $recoveryItemAggregated = [];
+        $finLossAggregated = [];
+
+        foreach ($finLossForms as $form) {
+            $findingTitle = trim($form->judul_temuan ?? '') ?: 'Tanpa Judul';
+
+            if (!isset($finLossAggregated[$findingTitle])) {
+                $finLossAggregated[$findingTitle] = [
+                    'agreed_idr' => 0.0,
+                    'agreed_usd' => 0.0,
+                    'recovery_idr' => 0.0,
+                    'recovery_usd' => 0.0,
+                ];
             }
-        } catch (\Exception $e) {
-            // ignore fallback
+
+            foreach ($form->findlossdetails as $detail) {
+                $itemName = trim($detail->item ?? '') ?: 'Tanpa Item';
+                $agreedIdr = (float) ($detail->nilai ?? 0);
+                $agreedUsd = (float) ($detail->nilai_usd ?? 0);
+                $recoveryIdr = (float) $detail->recoveries->sum('amount');
+                $recoveryUsd = (float) $detail->recoveries->sum('amount_usd');
+
+                if (!isset($recoveryItemAggregated[$itemName])) {
+                    $recoveryItemAggregated[$itemName] = 0.0;
+                }
+
+                $recoveryItemAggregated[$itemName] += $recoveryIdr;
+
+                $finLossAggregated[$findingTitle]['agreed_idr'] += $agreedIdr;
+                $finLossAggregated[$findingTitle]['agreed_usd'] += $agreedUsd;
+                $finLossAggregated[$findingTitle]['recovery_idr'] += $recoveryIdr;
+                $finLossAggregated[$findingTitle]['recovery_usd'] += $recoveryUsd;
+            }
         }
 
-        // Ambil semua opsi filter
-        $statuses = \App\Models\Status::all();
-        $priorities = \App\Models\Priority::all();
-        $categories = \App\Models\Kategori::all();
+        // Siapkan data donut recovery per item (hanya item dengan nilai > 0)
+        $recoveryItemAggregated = array_filter($recoveryItemAggregated, fn ($amount) => $amount > 0);
+        arsort($recoveryItemAggregated);
 
-        // Query dasar
-        $query = \App\Models\AuditForm::with([
-            'kategori',
-            'priority',
-            'status',
-            'findlossdetails'
-        ])->orderBy('id', 'asc');
+        $recoveryChartData = [
+            'labels' => array_keys($recoveryItemAggregated),
+            'values' => array_values($recoveryItemAggregated),
+        ];
 
-        // 🔹 Filter Status
-        if ($request->filled('status')) {
-            $query->whereHas('status', function ($q) use ($request) {
-                $q->where('status', $request->status);
-            });
+        // Siapkan data bar chart per judul temuan
+        $finLossAggregated = array_filter($finLossAggregated, function ($data) {
+            return ($data['agreed_idr'] > 0)
+                || ($data['agreed_usd'] > 0)
+                || ($data['recovery_idr'] > 0)
+                || ($data['recovery_usd'] > 0);
+        });
+
+        uasort($finLossAggregated, function (array $a, array $b) {
+            $totalA = $a['agreed_idr'] + ($a['agreed_usd'] * 15000);
+            $totalB = $b['agreed_idr'] + ($b['agreed_usd'] * 15000);
+            return $totalB <=> $totalA;
+        });
+
+        $finLossLabels = array_keys($finLossAggregated);
+        $finLossAgreedIdr = [];
+        $finLossRecoveryIdr = [];
+        $finLossRemainingIdr = [];
+        $finLossAgreedUsd = [];
+        $finLossRecoveryUsd = [];
+        $finLossRemainingUsd = [];
+
+        foreach ($finLossAggregated as $data) {
+            $agreedIdr = round($data['agreed_idr'], 2);
+            $recoveryIdr = round($data['recovery_idr'], 2);
+            $remainingIdr = max($agreedIdr - $recoveryIdr, 0);
+
+            $agreedUsd = round($data['agreed_usd'], 2);
+            $recoveryUsd = round($data['recovery_usd'], 2);
+            $remainingUsd = max($agreedUsd - $recoveryUsd, 0);
+
+            $finLossAgreedIdr[] = $agreedIdr;
+            $finLossRecoveryIdr[] = $recoveryIdr;
+            $finLossRemainingIdr[] = $remainingIdr;
+
+            $finLossAgreedUsd[] = $agreedUsd;
+            $finLossRecoveryUsd[] = $recoveryUsd;
+            $finLossRemainingUsd[] = $remainingUsd;
         }
 
-        // 🔹 Filter Priority
-        if ($request->filled('priority')) {
-            $query->whereHas('priority', function ($q) use ($request) {
-                $q->where('name', $request->priority);
-            });
+        $finLossRecoveryData = [
+            'labels' => $finLossLabels,
+            'series' => [
+                'idr' => [
+                    'agreed' => $finLossAgreedIdr,
+                    'recovery' => $finLossRecoveryIdr,
+                    'remaining' => $finLossRemainingIdr,
+                ],
+                'usd' => [
+                    'agreed' => $finLossAgreedUsd,
+                    'recovery' => $finLossRecoveryUsd,
+                    'remaining' => $finLossRemainingUsd,
+                ],
+            ],
+            'totals' => [
+                'agreed_idr' => array_sum($finLossAgreedIdr),
+                'recovery_idr' => array_sum($finLossRecoveryIdr),
+                'remaining_idr' => array_sum($finLossRemainingIdr),
+                'agreed_usd' => array_sum($finLossAgreedUsd),
+                'recovery_usd' => array_sum($finLossRecoveryUsd),
+                'remaining_usd' => array_sum($finLossRemainingUsd),
+            ],
+        ];
+
+        return view('admin.findings', compact(
+            'plans',
+            'filters',
+            'years',
+            'hasFindingFilters',
+            'recoveryChartData',
+            'finLossRecoveryData'
+        ));
+    }
+
+    private function applyFindingFilters($query, array $filters): void
+    {
+        if (!empty($filters['search'])) {
+            $term = '%' . $filters['search'] . '%';
+            $query->where('judul_temuan', 'like', $term);
         }
+    }
 
-        // 🔹 Filter Kategori
-        if ($request->filled('kategori')) {
-            $query->whereHas('kategori', function ($q) use ($request) {
-                $q->where('name', $request->kategori);
-            });
-        }
-
-        // 🔹 Filter Due Date
-        // 🔹 Filter Due Date Range
-        if ($request->filled('due_start') && $request->filled('due_end')) {
-            // Jika dua-duanya diisi: ambil antara dua tanggal itu
-            $query->whereBetween('due_date', [$request->due_start, $request->due_end]);
-        } elseif ($request->filled('due_start')) {
-            // Jika hanya tanggal awal
-            $query->whereDate('due_date', '>=', $request->due_start);
-        } elseif ($request->filled('due_end')) {
-            // Jika hanya tanggal akhir
-            $query->whereDate('due_date', '<=', $request->due_end);
-        }
-
-
-         // 🔍 search judul_temuan
-        if ($request->filled('search'))
-            $query->where('judul_temuan', 'LIKE', '%' . $request->search . '%');
-
-        $findings = $query->paginate(15)->withQueryString();
-
-        return view('admin.findings', compact('findings', 'exchangeRate', 'statuses', 'priorities', 'categories'));
+    private function hasFindingFilters(array $filters): bool
+    {
+        return !empty($filters['search']);
     }
 
 
@@ -145,7 +916,7 @@ class AdminController extends Controller
             'priority',
             'status',
             'reminder',
-            'findlossdetails',
+            'findlossdetails.recoveries',
             'fileattachments',
             'assessments.recoveries',     // ✅ tambahkan ini
             'auditorUser'  
@@ -186,6 +957,162 @@ class AdminController extends Controller
 
         $progressPercent = $total > 0 ? round(($completed / $total) * 100) : 0;
 
+        $resolveEventDate = function (...$candidates) {
+            foreach ($candidates as $candidate) {
+                if ($candidate instanceof Carbon) {
+                    return $candidate->copy();
+                }
+
+                if ($candidate) {
+                    try {
+                        return Carbon::parse($candidate);
+                    } catch (\Throwable $e) {
+                        continue;
+                    }
+                }
+            }
+
+            return null;
+        };
+
+        $detailCharts = [];
+
+        foreach (($finding->findlossdetails ?? collect()) as $detail) {
+            $agreedAmountIdr = (float) ($detail->nilai ?? 0);
+            $agreedAmountUsd = (float) ($detail->nilai_usd ?? 0);
+
+            if ($agreedAmountIdr <= 0 && $agreedAmountUsd <= 0) {
+                continue;
+            }
+
+            $events = collect();
+
+            $agreedDate = $resolveEventDate(
+                $detail->recorded_at,
+                $finding->tanggal_temuan,
+                $finding->start_date,
+                $finding->created_at
+            );
+
+            $events->push([
+                'type' => 'temuan',
+                'date' => $agreedDate,
+                'amount_idr' => $agreedAmountIdr,
+                'amount_usd' => $agreedAmountUsd,
+                'label' => ($agreedDate ? $agreedDate->format('d M Y') : 'Temuan') . ' • Temuan'
+            ]);
+
+            $detail->recoveries
+                ->sortBy(fn ($recovery) => optional($resolveEventDate($recovery->recorded_at, $recovery->created_at))->timestamp ?? PHP_INT_MAX)
+                ->values()
+                ->each(function ($recovery, $index) use ($events, $resolveEventDate) {
+                    $recoveryDate = $resolveEventDate($recovery->recorded_at, $recovery->created_at);
+                    $amountIdr = (float) ($recovery->amount ?? 0);
+                    $amountUsd = (float) ($recovery->amount_usd ?? 0);
+
+                    if (($amountIdr <= 0 && $amountUsd <= 0) || !$recoveryDate) {
+                        return;
+                    }
+
+                    $label = $recoveryDate->format('d M Y') . ' • Recovery ' . ($index + 1);
+                    if ($recovery->notes) {
+                        $label .= ' • ' . $recovery->notes;
+                    }
+
+                    $events->push([
+                        'type' => 'recovery',
+                        'date' => $recoveryDate,
+                        'amount_idr' => $amountIdr,
+                        'amount_usd' => $amountUsd,
+                        'label' => $label,
+                    ]);
+                });
+
+            $events = $events
+                ->filter(fn ($event) => ($event['amount_idr'] ?? 0) > 0 || ($event['amount_usd'] ?? 0) > 0)
+                ->sortBy(fn ($event) => optional($event['date'])->timestamp ?? PHP_INT_MAX)
+                ->values();
+
+            if ($events->isEmpty()) {
+                continue;
+            }
+
+            $labels = [];
+
+            $temuanSeriesIdr = [];
+            $recoverySeriesIdr = [];
+            $remainingSeriesIdr = [];
+
+            $temuanSeriesUsd = [];
+            $recoverySeriesUsd = [];
+            $remainingSeriesUsd = [];
+
+            $outstandingIdr = 0.0;
+            $outstandingUsd = 0.0;
+
+            $totalAgreedIdr = 0.0;
+            $totalAgreedUsd = 0.0;
+            $totalRecoveryIdr = 0.0;
+            $totalRecoveryUsd = 0.0;
+
+            foreach ($events as $event) {
+                $amountIdr = round((float) ($event['amount_idr'] ?? 0), 2);
+                $amountUsd = round((float) ($event['amount_usd'] ?? 0), 2);
+
+                if ($event['type'] === 'temuan') {
+                    $outstandingIdr += $amountIdr;
+                    $outstandingUsd += $amountUsd;
+                    $totalAgreedIdr += $amountIdr;
+                    $totalAgreedUsd += $amountUsd;
+                } else {
+                    $totalRecoveryIdr += $amountIdr;
+                    $totalRecoveryUsd += $amountUsd;
+                    $outstandingIdr = max($outstandingIdr - $amountIdr, 0);
+                    $outstandingUsd = max($outstandingUsd - $amountUsd, 0);
+                }
+
+                $labels[] = $event['label'] ?? 'Event';
+
+                $temuanSeriesIdr[] = $event['type'] === 'temuan' ? $amountIdr : 0.0;
+                $recoverySeriesIdr[] = $event['type'] === 'recovery' ? $amountIdr : 0.0;
+                $remainingSeriesIdr[] = round($outstandingIdr, 2);
+
+                $temuanSeriesUsd[] = $event['type'] === 'temuan' ? $amountUsd : 0.0;
+                $recoverySeriesUsd[] = $event['type'] === 'recovery' ? $amountUsd : 0.0;
+                $remainingSeriesUsd[] = round($outstandingUsd, 2);
+            }
+
+            $detailCharts[] = [
+                'detail_id' => $detail->id,
+                'item' => $detail->item ?? 'Detail #' . $detail->id,
+                'labels' => $labels,
+                'series' => [
+                    'idr' => [
+                        'temuan' => $temuanSeriesIdr,
+                        'recovery' => $recoverySeriesIdr,
+                        'remaining' => $remainingSeriesIdr,
+                    ],
+                    'usd' => [
+                        'temuan' => $temuanSeriesUsd,
+                        'recovery' => $recoverySeriesUsd,
+                        'remaining' => $remainingSeriesUsd,
+                    ],
+                ],
+                'totals' => [
+                    'idr' => [
+                        'agreed' => round($totalAgreedIdr, 2),
+                        'recovery' => round($totalRecoveryIdr, 2),
+                        'remaining' => round($outstandingIdr, 2),
+                    ],
+                    'usd' => [
+                        'agreed' => round($totalAgreedUsd, 2),
+                        'recovery' => round($totalRecoveryUsd, 2),
+                        'remaining' => round($outstandingUsd, 2),
+                    ],
+                ],
+            ];
+        }
+
         // ===== Jika kategori bukan Fin Loss / Recovery → return biasa =====
         if (
             !($finding->kategori && strtolower($finding->kategori->name) === 'fin loss') ||
@@ -193,12 +1120,12 @@ class AdminController extends Controller
         ) {
             return view('admin.assessment', compact(
                 'finding', 'categories', 'subcategories', 'priorities',
-                'exchangeRate', 'progressPercent'
+                'exchangeRate', 'progressPercent', 'detailCharts'
             ));
         }
 
         // ===== Logika Fin Loss + Recovery =====
-        $allForms = AuditForm::with(['findlossdetails', 'assessments.recoveries'])
+        $allForms = AuditForm::with(['findlossdetails.recoveries', 'assessments.recoveries'])
             ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
             ->whereHas('subkategori', fn($q) => $q->where('name', 'Recovery'))
             ->whereNotNull('id') // jaga-jaga, abaikan data aneh
@@ -216,7 +1143,7 @@ class AdminController extends Controller
 
 
             $kerugian = $form->findlossdetails->sum('nilai');
-            $recovery = $form->assessments->sum(fn($as) => $as->recoveries->sum('nilai'));
+            $recovery = $form->findlossdetails->sum(fn($detail) => $detail->paid_amount ?? 0);
 
             $sisaInput  = $sisaOutputPrev;
             $sisaOutput = ($kerugian + $sisaInput) - $recovery;
@@ -234,7 +1161,8 @@ class AdminController extends Controller
         return view('admin.assessment', compact(
             'finding', 'categories', 'subcategories', 'priorities',
             'exchangeRate', 'progressPercent',
-            'totalKerugian', 'totalRecovery', 'sisaOutputNow', 'sisaInputNow'
+            'totalKerugian', 'totalRecovery', 'sisaOutputNow', 'sisaInputNow',
+            'detailCharts'
         ));
     }
 
@@ -278,7 +1206,7 @@ class AdminController extends Controller
 
 
     // Tampilkan form untuk membuat temuan audit baru
-    public function createFinding()
+    public function createFinding(Request $request)
     {
         // Ambil kurs real-time
         $exchangeRate = 15000; // fallback
@@ -294,31 +1222,54 @@ class AdminController extends Controller
         $categories = Kategori::all();
         $priorities = Priority::all();
         $subcategories = Subkategori::all();
-        return view('admin.createAuditFindings', compact('categories', 'priorities', 'subcategories', 'exchangeRate'));
+
+        $allPlans = AuditPlan::orderByDesc('year')
+            ->orderBy('title')
+            ->get();
+
+        $auditPlans = $allPlans->groupBy('year');
+
+        $preselectedPlanId = $request->filled('plan') ? (int) $request->input('plan') : null;
+        $preselectedPlan = $preselectedPlanId ? $allPlans->firstWhere('id', $preselectedPlanId) : null;
+
+        if (!$preselectedPlan) {
+            $preselectedPlanId = null;
+        }
+
+        $extraMailRecipients = collect(config('mail.extra_recipients', []));
+
+        return view('admin.createAuditFindings', compact(
+            'categories',
+            'priorities',
+            'subcategories',
+            'exchangeRate',
+            'auditPlans',
+            'preselectedPlanId',
+            'preselectedPlan',
+            'extraMailRecipients'
+        ));
     }
 
 
     public function addFindLossDetail(Request $request, $auditFormId)
     {
         try {
-
-            $exchangeRate = 15000;
-            try {
-                $response = \Illuminate\Support\Facades\Http::get('https://api.exchangerate-api.com/v4/latest/USD');
-                if ($response->successful()) {
-                    $exchangeRate = $response->json('rates.IDR');
-                }
-            } catch (\Exception $e) {
-                // fallback
-            }
-            
-            $detail = Findlossdetail::create([
-                'item' => $request->item,
-                'nilai' => $request->nilai,
-                'audit_form_id' => $auditFormId,
+            $validated = $request->validate([
+                'item' => 'required|string|max:255',
+                'nilai' => 'required|numeric|min:0',
+                'nilai_usd' => 'nullable|numeric|min:0',
+                'recorded_at' => 'nullable|date',
             ]);
 
-            $exchangeRate = 16253.62;
+            $detail = Findlossdetail::create([
+                'item' => $validated['item'],
+                'nilai' => (float) $validated['nilai'],
+                'nilai_usd' => (float) ($validated['nilai_usd'] ?? 0),
+                'paid_amount' => 0,
+                'paid_amount_usd' => 0,
+                'recorded_at' => $validated['recorded_at'] ?? null,
+                'audit_form_id' => $auditFormId,
+            ]);
 
             $responseData = [
                 'success' => true,
@@ -326,19 +1277,57 @@ class AdminController extends Controller
                     'id' => $detail->id,
                     'item' => $detail->item,
                     'nilai' => number_format($detail->nilai, 0, ',', '.'),
-                    'usd' => number_format($detail->nilai / $exchangeRate, 2)
+                    'nilai_usd' => number_format($detail->nilai_usd ?? 0, 2, '.', ','),
+                    'paid_amount' => number_format($detail->paid_amount ?? 0, 0, ',', '.'),
+                    'paid_amount_usd' => number_format($detail->paid_amount_usd ?? 0, 2, '.', ','),
+                    'remaining' => number_format($detail->nilai, 0, ',', '.'),
+                    'remaining_usd' => number_format(max(($detail->nilai_usd ?? 0) - ($detail->paid_amount_usd ?? 0), 0), 2, '.', ',')
                 ]
             ];
 
-        Log::info('✅ Response data before return', $responseData);
+            Log::info('✅ Response data before return', $responseData);
 
-        return response()->json($responseData, 200, [], JSON_UNESCAPED_UNICODE);
-
-    } catch (\Throwable $e) {
-        Log::error('❌ Error addFindLossDetail', ['msg' => $e->getMessage()]);
-        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+            return response()->json($responseData, 200, [], JSON_UNESCAPED_UNICODE);
+        } catch (\Throwable $e) {
+            Log::error('❌ Error addFindLossDetail', ['msg' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
+    public function updateFindLossDetail(Request $request, $id)
+    {
+        $detail = Findlossdetail::findOrFail($id);
+
+        $validated = $request->validate([
+            'item' => 'nullable|string|max:255',
+            'nilai' => 'required|numeric|min:0',
+            'nilai_usd' => 'nullable|numeric|min:0',
+        ]);
+
+        if (array_key_exists('item', $validated) && $validated['item'] !== null) {
+            $detail->item = trim($validated['item']);
+        }
+
+        $detail->nilai = (float) $validated['nilai'];
+        $detail->nilai_usd = isset($validated['nilai_usd']) ? (float) $validated['nilai_usd'] : 0.0;
+        $detail->save();
+
+        $remainingIdr = max($detail->nilai - ($detail->paid_amount ?? 0), 0);
+        $remainingUsd = max(($detail->nilai_usd ?? 0) - ($detail->paid_amount_usd ?? 0), 0);
+
+        return response()->json([
+            'success' => true,
+            'detail' => [
+                'id' => $detail->id,
+                'item' => $detail->item,
+                'nilai' => number_format($detail->nilai, 0, ',', '.'),
+                'nilai_usd' => number_format((float) ($detail->nilai_usd ?? 0), 2, '.', ','),
+                'paid_amount' => number_format($detail->paid_amount ?? 0, 0, ',', '.'),
+                'paid_amount_usd' => number_format((float) ($detail->paid_amount_usd ?? 0), 2, '.', ','),
+                'remaining' => number_format($remainingIdr, 0, ',', '.'),
+                'remaining_usd' => number_format($remainingUsd, 2, '.', ','),
+            ],
+        ]);
     }
 
 
@@ -347,6 +1336,91 @@ class AdminController extends Controller
         try {
             $detail = \App\Models\Findlossdetail::findOrFail($id);
             $detail->delete();
+
+            return response()->json(['success' => true]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function storeFindLossRecovery(Request $request, $detailId)
+    {
+        $detail = Findlossdetail::findOrFail($detailId);
+
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'amount_usd' => 'nullable|numeric|min:0',
+            'recorded_at' => 'nullable|date',
+            'notes' => 'nullable|string|max:255',
+        ]);
+
+        $recovery = $detail->recoveries()->create([
+            'amount' => $validated['amount'],
+            'amount_usd' => (float) ($validated['amount_usd'] ?? 0),
+            'recorded_at' => $validated['recorded_at'] ?? now(),
+            'notes' => $validated['notes'] ?? null,
+        ]);
+
+        $detail->syncPaidAmount();
+
+        return response()->json([
+            'success' => true,
+            'recovery' => $recovery,
+            'paid_amount' => $detail->paid_amount,
+            'paid_amount_usd' => $detail->paid_amount_usd,
+            'remaining' => max($detail->nilai - $detail->paid_amount, 0),
+            'remaining_usd' => max(($detail->nilai_usd ?? 0) - ($detail->paid_amount_usd ?? 0), 0),
+        ], 201);
+    }
+
+    public function updateFindLossRecovery(Request $request, $id)
+    {
+        $recovery = FindlossRecovery::findOrFail($id);
+
+        $validated = $request->validate([
+            'amount' => 'required|numeric|min:0',
+            'amount_usd' => 'nullable|numeric|min:0',
+            'recorded_at' => 'nullable|date',
+            'notes' => 'nullable|string|max:255',
+        ]);
+
+        $recovery->amount = (float) $validated['amount'];
+        $recovery->amount_usd = isset($validated['amount_usd']) ? (float) $validated['amount_usd'] : 0.0;
+        $recovery->recorded_at = $validated['recorded_at'] ?? $recovery->recorded_at;
+        $recovery->notes = $validated['notes'] ?? null;
+        $recovery->save();
+
+        $detail = $recovery->detail;
+        if ($detail) {
+            $detail->syncPaidAmount();
+        }
+
+        return response()->json([
+            'success' => true,
+            'recovery' => [
+                'id' => $recovery->id,
+                'amount' => number_format($recovery->amount, 0, ',', '.'),
+                'amount_usd' => number_format((float) ($recovery->amount_usd ?? 0), 2, '.', ','),
+                'recorded_at' => optional($recovery->recorded_at)->format('d M Y'),
+                'notes' => $recovery->notes,
+            ],
+        ]);
+    }
+
+    public function deleteFindLossRecovery($id)
+    {
+        try {
+            $recovery = FindlossRecovery::findOrFail($id);
+            $detail = $recovery->detail;
+
+            $recovery->delete();
+
+            if ($detail) {
+                $detail->syncPaidAmount();
+            }
 
             return response()->json(['success' => true]);
         } catch (\Exception $e) {
@@ -479,48 +1553,11 @@ class AdminController extends Controller
     {
         Log::info('Starting storeFinding...', ['input' => $request->all()]);
 
-        // ================== BLOK DEBUGGING BARU ==================
-        try {
-            $validatedData = $request->validate([
-                'title' => 'required|string|max:255',
-                'department_pic' => 'nullable|string|max:255',
-                'auditor' => 'required|exists:users,id',
-                'description' => 'required|string',
-                'category' => 'required|string',
-                'priority' => 'required|string',
-                'sub_category' => 'nullable|string',
-                'finding_date' => 'required|date',
-                'start_date' => 'required|date',
-                'due_date' => 'required|date',
-                'client_pt' => 'required_if:category,Fin Loss|nullable|string|max:255',
-                'client_name' => 'required_if:category,Fin Loss|nullable|string|max:255',
-                'client_email' => 'required_if:category,Fin Loss|nullable|email',
-                'reminder_name' => 'required_if:category,Non Compliance,Improvement|nullable|string|max:255',
-                'reminder_email' => 'required_if:category,Non Compliance,Improvement|nullable|email',
-                'internal_notes' => 'nullable|string',
-                'auditee_notes' => 'nullable|string',
-                'file_upload' => 'nullable|array',
-                'file_upload.*' => 'file|mimes:png,jpg,jpeg,pdf|max:5120',
-                'loss_description' => 'nullable|array',
-                'loss_value' => 'nullable|array',
-            ]);
-
-            Log::info('VALIDATION PASSED.');
-
-        } catch (ValidationException $e) {
-            Log::error('VALIDATION FAILED.', [
-                'errors' => $e->errors(), // Ini akan menunjukkan field mana yang gagal dan kenapa
-                'input' => $request->all()
-            ]);
-            // Melempar kembali exception agar Laravel tetap redirect seperti biasa
-            throw $e;
-        }
-        // ================== AKHIR BLOK DEBUGGING ==================
-
         try {
 
             // Validasi
             $request->validate([
+                'audit_plan_id' => 'required|exists:audit_plans,id',
                 'title' => 'required|string|max:255',
                 'department_pic' => 'nullable|string|max:255',
                 'auditor' => 'required|exists:users,id',
@@ -528,20 +1565,17 @@ class AdminController extends Controller
                 'category' => 'required|string',
                 'priority' => 'required|string',
                 'sub_category' => 'nullable|string',
-                'finding_date' => 'required|date',
                 'start_date' => 'required|date',
                 'due_date' => 'required|date',
-                'client_pt' => 'required_if:category,Fin Loss|string|max:255',
-                'client_name' => 'required_if:category,Fin Loss|string|max:255',
-                'client_email' => 'required_if:category,Fin Loss|email',
-                'reminder_name' => 'required_if:category,Non Compliance,Improvement|nullable|string|max:255',
-                'reminder_email' => 'required_if:category,Non Compliance,Improvement|nullable|email',
+                'client_email' => 'nullable|string',
+                'reminder_email' => 'nullable|string',
                 'internal_notes' => 'nullable|string',
                 'auditee_notes' => 'nullable|string',
                 'file_upload' => 'nullable|array',
                 'file_upload.*' => 'file|mimes:png,jpg,jpeg,pdf|max:5120',
                 'loss_description' => 'nullable|array',
                 'loss_value' => 'nullable|array',
+                'loss_value_usd' => 'nullable|array', // manual USD values
             ]);
 
             $kategori = Kategori::where('name', $request->category)->first();
@@ -554,26 +1588,34 @@ class AdminController extends Controller
             if (!$kategori || !$priority) {
                 return back()->withErrors(['error' => 'Kategori atau Priority tidak valid']);
             }
-            // Simpan reminder/client
-            $reminderId = null;
-            if ($request->category === 'Fin Loss') {
-                $reminder = Reminder::create([
-                    'pt' => $request->client_pt,
-                    'nama' => $request->client_name,
-                    'email' => $request->client_email
-                ]);
-                $reminderId = $reminder->id;
-            } else {
-                $reminder = Reminder::create([
-                    'pt' => null, // NULL untuk non-Fin Loss
-                    'nama' => $request->reminder_name,
-                    'email' => $request->reminder_email
-                ]);
-                $reminderId = $reminder->id;
+
+            $auditorUser = User::findOrFail($request->auditor);
+
+            $rawAuditorEmails = $request->category === 'Fin Loss'
+                ? $request->client_email
+                : $request->reminder_email;
+
+            $parsedAuditorEmails = $this->parseEmailList($rawAuditorEmails);
+
+            $emailFieldKey = $request->category === 'Fin Loss' ? 'client_email' : 'reminder_email';
+
+            if ($parsedAuditorEmails->isEmpty()) {
+                return back()
+                    ->withErrors([$emailFieldKey => 'Masukkan minimal satu email auditor yang valid.'])
+                    ->withInput();
             }
+
+            // Simpan reminder / auditee contact (hanya email yang dibutuhkan)
+            $reminder = Reminder::create([
+                'pt' => null,
+                'nama' => null,
+                'email' => $parsedAuditorEmails->first() ?? optional($auditorUser)->email,
+            ]);
+            $reminderId = $reminder->id;
 
 
             // Simpan AuditForm
+            $findingDate = Carbon::now()->toDateString();
             $auditForm = AuditForm::create([
                 'judul_temuan' => $request->title,
                 'pic' => $request->department_pic,
@@ -582,13 +1624,14 @@ class AdminController extends Controller
                 'kategori_id' => $kategori->id,
                 'priority_id' => $priority->id,
                 'subkategori_id' => $subkategori?->id,
-                'tanggal_temuan' => $request->finding_date,
+                'tanggal_temuan' => $findingDate,
                 'start_date' => $request->start_date,
                 'due_date' => $request->due_date,
                 'reminder_id' => $reminderId,
                 'rekomendasi_author' => $request->internal_notes,
                 'catatan_tambahan' => $request->auditee_notes,
-                'status_id' => 1 // Default 'Open'
+                'status_id' => 1, // Default 'Open'
+                'audit_plan_id' => $request->audit_plan_id,
                 // 'attachment_path' => $attachmentPath
             ]);
 
@@ -596,13 +1639,17 @@ class AdminController extends Controller
             if ($request->category === 'Fin Loss' && is_array($request->loss_description)) {
                 foreach ($request->loss_description as $index => $description) {
                     $value = $request->loss_value[$index] ?? null;
+                    $valueUsd = $request->loss_value_usd[$index] ?? null;
 
-                    // Simpan hanya jika deskripsi tidak kosong
-                    if (!empty(trim($description)) && is_numeric($value)) {
+                    if (!empty(trim($description)) && (is_numeric($value) || is_numeric($valueUsd))) {
                         Findlossdetail::create([
                             'item' => trim($description),
-                            'nilai' => (float) $value,
-                            'audit_form_id' => $auditForm->id
+                            'nilai' => is_numeric($value) ? (float) $value : 0.0,
+                            'nilai_usd' => is_numeric($valueUsd) ? (float) $valueUsd : 0.0,
+                            'paid_amount' => 0.0,
+                            'paid_amount_usd' => 0.0,
+                            'recorded_at' => $auditForm->start_date ?? $auditForm->tanggal_temuan ?? now(),
+                            'audit_form_id' => $auditForm->id,
                         ]);
                     }
                 }
@@ -610,6 +1657,7 @@ class AdminController extends Controller
                 Log::info('Fin Loss Details to save:', [
                     'descriptions' => $request->loss_description,
                     'values' => $request->loss_value,
+                    'values_usd' => $request->loss_value_usd,
                     'audit_form_id' => $auditForm->id
                 ]);
 
@@ -647,8 +1695,17 @@ class AdminController extends Controller
             ]);
 
             // Ambil data auditor & auditee
-            $auditorUser = \App\Models\User::find($auditForm->auditor);
-            $auditeeEmail = $reminder->email;
+            $primaryReminderEmail = $parsedAuditorEmails->first();
+
+            if (!empty($primaryReminderEmail)) {
+                $reminder->update(['email' => $primaryReminderEmail]);
+            }
+
+            $allRecipientEmails = $parsedAuditorEmails
+                ->push(optional($auditorUser)->email)
+                ->filter()
+                ->unique()
+                ->values();
 
             // Buat notifikasi ke database (untuk web)
             Notification::create([
@@ -664,19 +1721,10 @@ class AdminController extends Controller
             $title = 'Temuan Audit Baru Dibuat';
             $message = "Temuan '{$auditForm->judul_temuan}' telah dibuat.\n\nTanggal Temuan: {$auditForm->tanggal_temuan}\nDue Date: {$auditForm->due_date}";
 
-            // Kirim email ke auditor
-            if ($auditorUser && $auditorUser->email) {
-                Mail::to($auditorUser->email)->send(
-                    new AuditNotificationMail($subject, $title, $message, $auditForm)
-                );
-            }
-
-            // Kirim email ke auditee (jika ada)
-            if (!empty($auditeeEmail)) {
-                Mail::to($auditeeEmail)->send(
-                    new AuditNotificationMail($subject, $title, $message, $auditForm)
-                );
-            }
+            $this->sendNotificationMail(
+                $allRecipientEmails->all(),
+                new AuditNotificationMail($subject, $title, $message, $auditForm)
+            );
 
             return redirect()->route('admin.findings')->with('success', 'Audit finding created successfully!');
         
@@ -911,6 +1959,36 @@ class AdminController extends Controller
         return view('admin.report');
     }
 
+    private function sendNotificationMail(array $recipients, \Illuminate\Contracts\Mail\Mailable $mailable): void
+    {
+        $emails = collect($recipients)
+            ->merge(config('mail.extra_recipients', []))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+            ->unique()
+            ->values();
+
+        if ($emails->isEmpty()) {
+            return;
+        }
+
+        $emails->each(function (string $email) use ($mailable) {
+            Mail::to($email)->send(clone $mailable);
+        });
+    }
+
+    private function parseEmailList(?string $rawEmails): \Illuminate\Support\Collection
+    {
+        if (blank($rawEmails)) {
+            return collect();
+        }
+
+        return collect(preg_split('/[\s,;]+/', $rawEmails ?? '', -1, PREG_SPLIT_NO_EMPTY))
+            ->map(fn ($email) => strtolower(trim($email)))
+            ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+            ->unique()
+            ->values();
+    }
+
     // Fungsi untuk menampilkan halaman Manage Users
     public function manageUsers(Request $request)
     {
@@ -960,113 +2038,697 @@ class AdminController extends Controller
             ->with('success', "{$user->name}'s role has been updated successfully!");
     }
 
-    public function getFinLossDonut()
+    public function getStatusChart(Request $request)
     {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
 
-        $query = \App\Models\AuditForm::query()
-            ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
-            ->whereBetween('tanggal_temuan', [$start, $end])
-            ->with(['subkategori', 'priority']);
+        $query = AuditForm::query()->whereNotNull('status_id')->with('status');
+        $this->applyChartDateRange($query, $start, $end);
 
-        $grouped = $query->get()->groupBy([
-            fn($a) => strtolower(optional($a->subkategori)->name ?? 'unknown'),
-            fn($a) => strtolower(optional($a->priority)->name ?? 'unknown'),
-        ]);
+        $forms = $query->get();
 
-        $priorities = ['high', 'medium', 'low'];
+        $order = ['Open', 'Closed', 'Overdue'];
 
-        $data = [
-            'Recovery' => array_map(fn($p) =>
-                ($grouped['recovery'][$p] ?? collect())->count(), $priorities),
+        $counts = $forms->groupBy(fn ($form) => optional($form->status)->status)
+            ->map(fn ($items) => $items->count())
+            ->filter(fn ($total, $status) => !empty($status));
 
-            'Non-Recovery' => array_map(fn($p) =>
-                ($grouped['non-recovery'][$p] ?? collect())->count(), $priorities),
-        ];
+        $labels = [];
+        $values = [];
 
-        return response()->json($data);
-    }
-
-    public function getImprovementChart()
-    {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
-
-        // Siapkan list 5 bulan ke depan/belakang
-        $months = collect();
-        for ($m = $start->copy(); $m <= $end; $m->addMonth()) {
-            $months->push($m->format('M'));
+        foreach ($order as $statusName) {
+            if ($counts->has($statusName)) {
+                $labels[] = $statusName;
+                $values[] = (int) $counts->get($statusName);
+            }
         }
 
-        // Ambil data kategori 'Improvement'
-        $query = \App\Models\AuditForm::query()
-            ->whereHas('kategori', fn($q) => $q->where('name', 'Improvement'))
-            ->whereBetween('tanggal_temuan', [$start, $end])
-            ->with('priority');
-
-        $grouped = $query->get()->groupBy([
-            fn($a) => strtolower(optional($a->priority)->name ?? 'unknown'),
-            fn($a) => Carbon::parse($a->tanggal_temuan)->format('M'),
-        ]);
-
-        $priorities = ['high', 'medium', 'low'];
-
-        $data = [
-            'labels' => $months,
-        ];
-
-        foreach ($priorities as $p) {
-            $data[ucfirst($p)] = $months->map(fn($m) =>
-                isset($grouped[$p][$m]) ? $grouped[$p][$m]->count() : 0
-            )->toArray();
+        foreach ($counts as $statusName => $total) {
+            if (!in_array($statusName, $order, true)) {
+                $labels[] = $statusName;
+                $values[] = (int) $total;
+            }
         }
 
-        return response()->json($data);
-    }
+        $totalAll = array_sum($values);
+        $summary = [];
 
-    public function getNonComplianceChart()
-    {
-        $start = Carbon::now()->subMonths(2)->startOfMonth();
-        $end   = Carbon::now()->addMonths(2)->endOfMonth();
-
-        // Daftar bulan yang ingin ditampilkan (5 total)
-        $months = collect();
-        for ($m = $start->copy(); $m <= $end; $m->addMonth()) {
-            $months->push($m->format('M'));
-        }
-
-        // Ambil data dari kategori Non-Compliance
-        $query = \App\Models\AuditForm::query()
-            ->whereHas('kategori', fn($q) => $q->where('name', 'Non Compliance'))
-            ->whereBetween('tanggal_temuan', [$start, $end])
-            ->with('priority');
-
-        $grouped = $query->get()->groupBy([
-            fn($a) => strtolower(optional($a->priority)->name ?? 'unknown'),
-            fn($a) => Carbon::parse($a->tanggal_temuan)->format('M'),
-        ]);
-
-        $priorities = ['high', 'medium', 'low'];
-
-        $dataPoints = [];
-
-        foreach ($months as $month) {
-            foreach ($priorities as $p) {
-                $count = isset($grouped[$p][$month]) ? $grouped[$p][$month]->count() : 0;
-
-                $dataPoints[] = [
-                    'x' => $month,
-                    'y' => ucfirst($p),
-                    'value' => $count
+        if ($totalAll > 0) {
+            foreach ($labels as $index => $label) {
+                $value = $values[$index] ?? 0;
+                $summary[] = [
+                    'label' => $label,
+                    'value' => $value,
+                    'percentage' => round(($value / $totalAll) * 100, 1),
                 ];
             }
         }
 
         return response()->json([
-            'labels' => $months,
-            'data' => $dataPoints
+            'labels' => $labels,
+            'values' => $values,
+            'summary' => $summary,
+            'total' => $totalAll,
+            'range' => [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ],
         ]);
     }
 
+    public function getFinLossGlobalChart(Request $request)
+    {
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
+
+        $query = AuditForm::query()
+            ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
+            ->with(['findlossdetails.recoveries']);
+
+        $this->applyChartDateRange($query, $start, $end);
+
+        $forms = $query->get();
+
+        $totalAgreedIdr = 0.0;
+        $totalAgreedUsd = 0.0;
+        $totalRecoveryIdr = 0.0;
+        $totalRecoveryUsd = 0.0;
+
+        foreach ($forms as $form) {
+            foreach ($form->findlossdetails as $detail) {
+                $totalAgreedIdr += (float) ($detail->nilai ?? 0);
+                $totalAgreedUsd += (float) ($detail->nilai_usd ?? 0);
+
+                $totalRecoveryIdr += (float) $detail->recoveries->sum('amount');
+                $totalRecoveryUsd += (float) $detail->recoveries->sum('amount_usd');
+            }
+        }
+
+        $totalAgreedIdr = round($totalAgreedIdr, 2);
+        $totalAgreedUsd = round($totalAgreedUsd, 2);
+        $totalRecoveryIdr = round($totalRecoveryIdr, 2);
+        $totalRecoveryUsd = round($totalRecoveryUsd, 2);
+
+        $totalRemainingIdr = max(round($totalAgreedIdr - $totalRecoveryIdr, 2), 0);
+        $totalRemainingUsd = max(round($totalAgreedUsd - $totalRecoveryUsd, 2), 0);
+
+        $hasValue = ($totalAgreedIdr > 0) || ($totalRecoveryIdr > 0) || ($totalRemainingIdr > 0);
+
+        return response()->json([
+            'labels' => ['Total'],
+            'datasets' => [
+                'recovery' => [$totalRecoveryIdr],
+                'remaining' => [$totalRemainingIdr],
+                'agreed' => [$totalAgreedIdr],
+            ],
+            'totals' => [
+                'agreed_idr' => $totalAgreedIdr,
+                'recovery_idr' => $totalRecoveryIdr,
+                'remaining_idr' => $totalRemainingIdr,
+                'agreed_usd' => $totalAgreedUsd,
+                'recovery_usd' => $totalRecoveryUsd,
+                'remaining_usd' => $totalRemainingUsd,
+            ],
+            'hasValue' => $hasValue,
+            'range' => [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ],
+        ]);
+    }
+
+    public function getFinLossFindingBreakdown(Request $request)
+    {
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
+
+        $formsQuery = AuditForm::query()
+            ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
+            ->with(['findlossdetails.recoveries']);
+
+        $this->applyChartDateRange($formsQuery, $start, $end);
+
+        $forms = $formsQuery->get();
+
+        $labelsIdr = [];
+        $initialIdr = [];
+        $recoveryIdr = [];
+        $remainingIdr = [];
+
+        $labelsUsd = [];
+        $initialUsd = [];
+        $recoveryUsd = [];
+        $remainingUsd = [];
+
+        foreach ($forms as $form) {
+            $title = $form->judul_temuan ?: ('Finding #' . $form->id);
+
+            $totalInitialIdr = 0.0;
+            $totalRecoveryIdr = 0.0;
+            $totalInitialUsd = 0.0;
+            $totalRecoveryUsd = 0.0;
+
+            foreach ($form->findlossdetails as $detail) {
+                $totalInitialIdr += (float) ($detail->nilai ?? 0);
+                $totalInitialUsd += (float) ($detail->nilai_usd ?? 0);
+
+                $totalRecoveryIdr += (float) $detail->recoveries->sum('amount');
+                $totalRecoveryUsd += (float) $detail->recoveries->sum('amount_usd');
+            }
+
+            $totalRemainingIdr = max($totalInitialIdr - $totalRecoveryIdr, 0);
+            $totalRemainingUsd = max($totalInitialUsd - $totalRecoveryUsd, 0);
+
+            if ($totalInitialIdr > 0 || $totalRecoveryIdr > 0 || $totalRemainingIdr > 0) {
+                $labelsIdr[] = $title;
+                $initialIdr[] = round($totalInitialIdr, 2);
+                $recoveryIdr[] = round($totalRecoveryIdr, 2);
+                $remainingIdr[] = round($totalRemainingIdr, 2);
+            }
+
+            if ($totalInitialUsd > 0 || $totalRecoveryUsd > 0 || $totalRemainingUsd > 0) {
+                $labelsUsd[] = $title;
+                $initialUsd[] = round($totalInitialUsd, 2);
+                $recoveryUsd[] = round($totalRecoveryUsd, 2);
+                $remainingUsd[] = round($totalRemainingUsd, 2);
+            }
+        }
+
+        return response()->json([
+            'idr' => [
+                'labels' => $labelsIdr,
+                'datasets' => [
+                    ['label' => 'Initial Amount', 'data' => $initialIdr],
+                    ['label' => 'Recovery', 'data' => $recoveryIdr],
+                    ['label' => 'Remaining', 'data' => $remainingIdr],
+                ],
+            ],
+            'usd' => [
+                'labels' => $labelsUsd,
+                'datasets' => [
+                    ['label' => 'Initial Amount', 'data' => $initialUsd],
+                    ['label' => 'Recovery', 'data' => $recoveryUsd],
+                    ['label' => 'Remaining', 'data' => $remainingUsd],
+                ],
+            ],
+        ]);
+    }
+
+    public function getReportTitleDistribution(Request $request)
+    {
+        $selectedYear = $request->integer('year');
+
+        $availableYears = AuditPlan::query()
+            ->whereNotNull('year')
+            ->pluck('year')
+            ->filter()
+            ->unique()
+            ->sortDesc()
+            ->values();
+
+        if (!$selectedYear && $availableYears->isNotEmpty()) {
+            $selectedYear = (int) $availableYears->first();
+        }
+
+        $plansQuery = AuditPlan::query()
+            ->withCount(['findings as findings_count' => function ($query) {
+                $query->whereNotNull('id');
+            }])
+            ->orderBy('title');
+
+        if ($selectedYear) {
+            $plansQuery->where('year', $selectedYear);
+        }
+
+        $plans = $plansQuery->get();
+
+        $labels = $plans->pluck('title')->toArray();
+        $values = $plans->pluck('findings_count')->map(fn ($count) => (int) $count)->toArray();
+
+        $details = $plans->map(function ($plan) {
+            return [
+                'title' => $plan->title,
+                'count' => (int) $plan->findings_count,
+            ];
+        })->values();
+
+        return response()->json([
+            'labels' => $labels,
+            'values' => $values,
+            'details' => $details,
+            'years' => $availableYears,
+            'selectedYear' => $selectedYear,
+        ]);
+    }
+
+    public function getFinLossDonut(Request $request)
+    {
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
+
+        $query = AuditForm::query()
+            ->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
+            ->with(['subkategori', 'priority']);
+
+        $this->applyChartDateRange($query, $start, $end);
+
+        $forms = $query->get();
+
+        $priorityKeys = ['high', 'medium', 'low'];
+        $buckets = [
+            'recovery' => array_fill_keys($priorityKeys, 0),
+            'non-recovery' => array_fill_keys($priorityKeys, 0),
+        ];
+
+        foreach ($forms as $form) {
+            $subcategoryName = strtolower(trim(optional($form->subkategori)->name ?? ''));
+
+            // Logika yang lebih fleksibel untuk mengidentifikasi recovery vs non-recovery
+            if ($subcategoryName === 'recovery' || Str::contains($subcategoryName, 'recovery')) {
+                $bucketKey = 'recovery';
+            } elseif ($subcategoryName === 'non-recovery' || Str::contains($subcategoryName, 'non')) {
+                $bucketKey = 'non-recovery';
+            } else {
+                // Default ke recovery jika subkategori tidak jelas
+                $bucketKey = 'recovery';
+            }
+
+            $priorityKey = strtolower(trim(optional($form->priority)->name ?? ''));
+
+            if (!array_key_exists($priorityKey, $buckets[$bucketKey])) {
+                continue;
+            }
+
+            $buckets[$bucketKey][$priorityKey]++;
+        }
+
+        $data = [
+            'Recovery' => array_map(fn($key) => $buckets['recovery'][$key], $priorityKeys),
+            'Non-Recovery' => array_map(fn($key) => $buckets['non-recovery'][$key], $priorityKeys),
+        ];
+
+        return response()->json($data);
+    }
+
+    public function getImprovementChart(Request $request)
+    {
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
+
+        // Siapkan list bulan sesuai rentang
+        $months = collect();
+        $cursor = $start->copy();
+        while ($cursor->lte($end)) {
+            $months->push($cursor->format('M'));
+            $cursor->addMonth();
+        }
+
+        // Ambil data kategori 'Improvement'
+        $query = AuditForm::query()
+            ->whereHas('kategori', fn($q) => $q->where('name', 'Improvement'))
+            ->with('priority');
+
+        $this->applyChartDateRange($query, $start, $end);
+
+        $forms = $query->get();
+
+        $priorityKeys = ['high', 'medium', 'low'];
+        $counts = [];
+
+        foreach ($months as $monthLabel) {
+            $counts[$monthLabel] = array_fill_keys($priorityKeys, 0);
+        }
+
+        foreach ($forms as $form) {
+            $referenceDate = $this->resolveReferenceDate($form);
+            if (!$referenceDate) {
+                continue;
+            }
+
+            $monthKey = $referenceDate->format('M');
+            if (!isset($counts[$monthKey])) {
+                continue;
+            }
+
+            $priorityKey = strtolower(trim(optional($form->priority)->name ?? ''));
+            if (!array_key_exists($priorityKey, $counts[$monthKey])) {
+                continue;
+            }
+
+            $counts[$monthKey][$priorityKey]++;
+        }
+
+        $data = [
+            'labels' => $months,
+        ];
+
+        foreach ($priorityKeys as $priorityKey) {
+            $data[ucfirst($priorityKey)] = $months->map(fn($month) => $counts[$month][$priorityKey] ?? 0)->toArray();
+        }
+
+        return response()->json($data);
+    }
+
+    public function getNonComplianceChart(Request $request)
+    {
+        [$start, $end] = $this->resolveChartDateRange(
+            $request->input('start_date'),
+            $request->input('end_date'),
+            Carbon::now()->subMonths(6)->startOfMonth(),
+            Carbon::now()->addMonths(6)->endOfMonth()
+        );
+
+        // Daftar bulan yang ingin ditampilkan berdasarkan rentang
+        $months = collect();
+        $cursor = $start->copy();
+        while ($cursor->lte($end)) {
+            $months->push($cursor->format('M'));
+            $cursor->addMonth();
+        }
+
+        // Ambil data dari kategori Non Compliance
+        $query = AuditForm::query()
+            ->whereHas('kategori', fn($q) => $q->where('name', 'Non Compliance'))
+            ->with('priority');
+
+        $this->applyChartDateRange($query, $start, $end);
+
+        $forms = $query->get();
+
+        $priorityKeys = ['high', 'medium', 'low'];
+        $counts = [];
+
+        foreach ($months as $monthLabel) {
+            $counts[$monthLabel] = array_fill_keys($priorityKeys, 0);
+        }
+
+        foreach ($forms as $form) {
+            $referenceDate = $this->resolveReferenceDate($form);
+            if (!$referenceDate) {
+                continue;
+            }
+
+            $monthKey = $referenceDate->format('M');
+            if (!isset($counts[$monthKey])) {
+                continue;
+            }
+
+            $priorityKey = strtolower(trim(optional($form->priority)->name ?? ''));
+            if (!array_key_exists($priorityKey, $counts[$monthKey])) {
+                continue;
+            }
+
+            $counts[$monthKey][$priorityKey]++;
+        }
+
+        $dataPoints = [];
+
+        foreach ($months as $monthLabel) {
+            foreach ($priorityKeys as $priorityKey) {
+                $dataPoints[] = [
+                    'x' => $monthLabel,
+                    'y' => ucfirst($priorityKey),
+                    'value' => $counts[$monthLabel][$priorityKey] ?? 0,
+                ];
+            }
+        }
+
+        return response()->json(['data' => $dataPoints]);
+    }
+
+    private function applyChartDateRange(Builder $query, Carbon $start, Carbon $end): void
+    {
+        $query->where(function (Builder $scope) use ($start, $end) {
+            $scope->whereBetween('start_date', [$start, $end])
+                ->orWhereBetween('tanggal_temuan', [$start, $end])
+                ->orWhere(function (Builder $fallback) use ($start, $end) {
+                    $fallback->whereNull('start_date')
+                        ->whereNull('tanggal_temuan')
+                        ->whereBetween('due_date', [$start, $end]);
+                });
+        });
+    }
+
+    private function resolveReferenceDate(?AuditForm $form): ?Carbon
+    {
+        if (!$form) {
+            return null;
+        }
+
+        $candidates = [
+            $form->start_date,
+            $form->tanggal_temuan,
+            $form->due_date,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate instanceof Carbon) {
+                return $candidate->copy();
+            }
+
+            if ($candidate) {
+                try {
+                    return Carbon::parse($candidate);
+                } catch (\Throwable $e) {
+                    continue;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveChartDateRange(?string $startDate, ?string $endDate, Carbon $defaultStart, Carbon $defaultEnd): array
+    {
+        $start = $defaultStart;
+        $end = $defaultEnd;
+
+        if ($startDate) {
+            try {
+                $start = Carbon::parse($startDate)->startOfDay();
+            } catch (\Throwable $e) {
+                $start = $defaultStart;
+            }
+        }
+
+        if ($endDate) {
+            try {
+                $end = Carbon::parse($endDate)->endOfDay();
+            } catch (\Throwable $e) {
+                $end = $defaultEnd;
+            }
+        }
+
+        if ($start->greaterThan($end)) {
+            [$start, $end] = [$end->copy()->startOfDay(), $start->copy()->endOfDay()];
+        }
+
+        return [$start, $end];
+    }
+
+    private function applyDashboardFilters($query, array $filters, ?int $year = null): void
+    {
+        if ($year) {
+            $query->where(function ($yearQuery) use ($year) {
+                $yearQuery->whereYear('tanggal_temuan', $year)
+                    ->orWhere(function ($fallback) use ($year) {
+                        $fallback->whereNull('tanggal_temuan')
+                            ->where(function ($dateQuery) use ($year) {
+                                $dateQuery->whereYear('start_date', $year)
+                                    ->orWhereYear('due_date', $year);
+                            });
+                    });
+            });
+        }
+
+        if (!empty($filters['audit_plan_id'])) {
+            $query->where('audit_plan_id', $filters['audit_plan_id']);
+        }
+
+        if (!empty($filters['status'])) {
+            $query->whereHas('status', function ($statusQuery) use ($filters) {
+                $statusQuery->where('status', $filters['status']);
+            });
+        }
+
+        if (!empty($filters['priority'])) {
+            $query->whereHas('priority', function ($priorityQuery) use ($filters) {
+                $priorityQuery->where('name', $filters['priority']);
+            });
+        }
+
+        if (!empty($filters['kategori'])) {
+            $query->whereHas('kategori', function ($kategoriQuery) use ($filters) {
+                $kategoriQuery->where('name', $filters['kategori']);
+            });
+        }
+
+        if (!empty($filters['search'])) {
+            $searchTerm = "%{$filters['search']}%";
+            $query->where(function ($searchQuery) use ($searchTerm) {
+                $searchQuery->where('judul_temuan', 'like', $searchTerm)
+                    ->orWhere('temuan_audit', 'like', $searchTerm);
+            });
+        }
+
+        if (!empty($filters['due_start'])) {
+            $query->whereDate('due_date', '>=', $filters['due_start']);
+        }
+
+        if (!empty($filters['due_end'])) {
+            $query->whereDate('due_date', '<=', $filters['due_end']);
+        }
+    }
+
+    public function getAuditRecapChart(Request $request)
+    {
+        // Ambil parameter tanggal
+        $startDate = $request->input('start_date');
+        $endDate = $request->input('end_date');
+
+        // Ambil semua audit plans dengan findings yang memiliki Fin Loss Recovery
+        $plans = AuditPlan::query()
+            ->with(['findings' => function ($query) use ($startDate, $endDate) {
+                $query->whereHas('kategori', fn($q) => $q->where('name', 'Fin Loss'))
+                      ->whereHas('subkategori', fn($q) => $q->where('name', 'Recovery'))
+                      ->with(['findlossdetails.recoveries']);
+                
+                // Filter berdasarkan tanggal jika ada
+                if ($startDate) {
+                    $query->where(function($q) use ($startDate) {
+                        $q->whereDate('tanggal_temuan', '>=', $startDate)
+                          ->orWhereDate('start_date', '>=', $startDate)
+                          ->orWhereDate('due_date', '>=', $startDate);
+                    });
+                }
+                if ($endDate) {
+                    $query->where(function($q) use ($endDate) {
+                        $q->whereDate('tanggal_temuan', '<=', $endDate)
+                          ->orWhereDate('start_date', '<=', $endDate)
+                          ->orWhereDate('due_date', '<=', $endDate);
+                    });
+                }
+            }])
+            ->get();
+
+        // Pisahkan data IDR dan USD
+        $labelsIDR = [];
+        $dataAwalIDR = [];
+        $dataRecoveryIDR = [];
+        $dataSisaIDR = [];
+
+        $labelsUSD = [];
+        $dataAwalUSD = [];
+        $dataRecoveryUSD = [];
+        $dataSisaUSD = [];
+
+        foreach ($plans as $plan) {
+            $totalAwalIDR = 0;
+            $totalRecoveryIDR = 0;
+            $totalAwalUSD = 0;
+            $totalRecoveryUSD = 0;
+
+            foreach ($plan->findings as $finding) {
+                foreach ($finding->findlossdetails as $detail) {
+                    // Pisahkan berdasarkan currency
+                    $totalAwalIDR += $detail->nilai ?? 0;
+                    $totalRecoveryIDR += $detail->paid_amount ?? 0;
+                    $totalAwalUSD += $detail->nilai_usd ?? 0;
+                    $totalRecoveryUSD += $detail->paid_amount_usd ?? 0;
+                }
+            }
+
+            // Tambahkan ke array IDR jika ada data
+            if ($totalAwalIDR > 0) {
+                $labelsIDR[] = $plan->title;
+                $dataAwalIDR[] = $totalAwalIDR;
+                $dataRecoveryIDR[] = $totalRecoveryIDR;
+                $dataSisaIDR[] = max($totalAwalIDR - $totalRecoveryIDR, 0);
+            }
+
+            // Tambahkan ke array USD jika ada data
+            if ($totalAwalUSD > 0) {
+                $labelsUSD[] = $plan->title;
+                $dataAwalUSD[] = $totalAwalUSD;
+                $dataRecoveryUSD[] = $totalRecoveryUSD;
+                $dataSisaUSD[] = max($totalAwalUSD - $totalRecoveryUSD, 0);
+            }
+        }
+
+        return response()->json([
+            'idr' => [
+                'labels' => $labelsIDR,
+                'datasets' => [
+                    [
+                        'label' => 'Initial Amount',
+                        'data' => $dataAwalIDR,
+                        'backgroundColor' => '#22c55e',
+                        'borderColor' => '#16a34a',
+                        'borderWidth' => 1
+                    ],
+                    [
+                        'label' => 'Recovery',
+                        'data' => $dataRecoveryIDR,
+                        'backgroundColor' => '#ef4444',
+                        'borderColor' => '#dc2626',
+                        'borderWidth' => 1
+                    ],
+                    [
+                        'label' => 'Remaining',
+                        'data' => $dataSisaIDR,
+                        'backgroundColor' => '#3b82f6',
+                        'borderColor' => '#2563eb',
+                        'borderWidth' => 1
+                    ]
+                ]
+            ],
+            'usd' => [
+                'labels' => $labelsUSD,
+                'datasets' => [
+                    [
+                        'label' => 'Initial Amount',
+                        'data' => $dataAwalUSD,
+                        'backgroundColor' => '#22c55e',
+                        'borderColor' => '#16a34a',
+                        'borderWidth' => 1
+                    ],
+                    [
+                        'label' => 'Recovery',
+                        'data' => $dataRecoveryUSD,
+                        'backgroundColor' => '#ef4444',
+                        'borderColor' => '#dc2626',
+                        'borderWidth' => 1
+                    ],
+                    [
+                        'label' => 'Remaining',
+                        'data' => $dataSisaUSD,
+                        'backgroundColor' => '#3b82f6',
+                        'borderColor' => '#2563eb',
+                        'borderWidth' => 1
+                    ]
+                ]
+            ]
+        ]);
+    }
 }

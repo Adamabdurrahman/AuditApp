@@ -115,4 +115,11 @@ return [
         'name' => env('MAIL_FROM_NAME', 'Example'),
     ],
 
+    'extra_recipients' => collect(explode(',', (string) env('MAIL_EXTRA_RECIPIENTS', '')))
+        ->map(fn ($email) => trim($email))
+        ->filter(fn ($email) => filter_var($email, FILTER_VALIDATE_EMAIL))
+        ->unique()
+        ->values()
+        ->all(),
+
 ];
